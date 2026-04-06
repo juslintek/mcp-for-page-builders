@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 description = "High-performance MCP server for WordPress Elementor — page CRUD, element operations, global design tokens, visual comparison, CDP-based DOM inspection"
 license = "BSL-1.1"
-repository = "https://github.com/user/elementor-mcp-rs"
+repository = "https://github.com/juslintek/mcp-for-page-builders"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "fs", "process"] }
