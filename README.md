@@ -201,8 +201,28 @@ Requires Chrome/Chromium installed.
 
 | Tool | Description |
 |---|---|
-| `install_bridge` | Install Elementor MCP Bridge plugin |
+| `install_bridge` | Install the MCP Bridge companion plugin |
 | `create_widget` | Scaffold and deploy custom Elementor widget PHP class |
+
+## MCP Bridge Plugin
+
+Some tools require a small companion WordPress plugin: **MCP Bridge for Page Builders** (`mcp-bridge-for-page-builders` on wordpress.org).
+
+The plugin exposes additional REST endpoints that WordPress's built-in API doesn't provide:
+
+- `elementor-mcp/v1/status` — health check and version probe used by `install_bridge`
+- `elementor-mcp/v1/option` — read/write arbitrary WordPress options (used by `get_wp_option`, `set_wp_option`, and as a fallback deployment channel for mu-plugin snippets)
+
+Without the bridge, `get_wp_option` and `set_wp_option` fall back to the standard `wp/v2/settings` endpoint, which only exposes a small allowlisted subset of options. The bridge removes that restriction, giving the MCP server full access to any option — including Elementor's internal configuration, Theme Builder conditions, and third-party plugin settings.
+
+The `install_bridge` tool handles installation automatically using a four-step fallback chain:
+
+1. Check if the bridge is already active (no-op if so)
+2. Auto-install and activate from wordpress.org via the plugins REST API
+3. Deploy as an mu-plugin snippet via the option endpoint (if step 2 fails)
+4. Return the PHP snippet and WP-CLI command for manual installation
+
+The bridge plugin is intentionally minimal — it adds no admin UI, no settings page, and no frontend output. Its sole purpose is to extend the REST API surface available to this MCP server.
 
 ### Utilities
 
