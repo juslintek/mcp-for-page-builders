@@ -2,21 +2,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::args::{str_arg, u64_arg};
+use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 fn page_url(id: u64) -> String { format!("wp/v2/pages/{id}?context=edit") }
-
-fn str_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key)?.as_str().map(|s| s.to_string())
-}
-
-fn u64_arg(args: &Value, key: &str) -> Option<u64> {
-    args.get(key)?.as_u64()
-}
 
 // ── CreatePage ────────────────────────────────────────────────────────────────
 
@@ -57,7 +49,7 @@ impl Tool for CreatePage {
 
         let result = wp.post("wp/v2/pages", &body).await?;
         let id = result["id"].as_u64().unwrap_or(0);
-        wp.clear_elementor_cache().await?;
+        ElementorService::new(wp).clear_cache().await?;
 
         Ok(ToolResult::text(format!("Created page ID {id}: {}", result["link"].as_str().unwrap_or(""))))
     }
@@ -126,7 +118,7 @@ impl Tool for UpdatePage {
         }
 
         wp.post(&format!("wp/v2/pages/{id}"), &body).await?;
-        wp.clear_elementor_cache().await?;
+        ElementorService::new(wp).clear_cache().await?;
 
         Ok(ToolResult::text(format!("Updated page {id} and cleared Elementor CSS cache.")))
     }

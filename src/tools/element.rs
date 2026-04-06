@@ -2,20 +2,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::elementor;
+use crate::args::{str_arg, u64_arg, usize_arg};
+use crate::elementor::{Element, ElementorService};
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
-
-fn str_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key)?.as_str().map(|s| s.to_string())
-}
-fn u64_arg(args: &Value, key: &str) -> Option<u64> {
-    args.get(key)?.as_u64()
-}
-fn usize_arg(args: &Value, key: &str) -> Option<usize> {
-    args.get(key)?.as_u64().map(|v| v as usize)
-}
 
 // ── GetElement ────────────────────────────────────────────────────────────────
 
@@ -42,8 +33,8 @@ impl Tool for GetElement {
         let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
         let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
 
-        let tree = elementor::get_page_elements(wp, page_id).await?;
-        match elementor::find_by_id(&tree, &eid) {
+        let tree = ElementorService::new(wp).get_tree(page_id).await?;
+        match tree.find(&eid) {
             Some(el) => Ok(ToolResult::text(serde_json::to_string_pretty(&el)?)),
             None => Ok(ToolResult::error(format!("Element {eid} not found on page {page_id}"))),
         }
@@ -79,17 +70,18 @@ impl Tool for AddElement {
         let position = usize_arg(&args, "position").unwrap_or(usize::MAX);
 
         let el_json = args.get("element").ok_or_else(|| anyhow::anyhow!("element required"))?;
-        let mut new_el: elementor::Element = serde_json::from_value(el_json.clone())?;
+        let mut new_el: Element = serde_json::from_value(el_json.clone())?;
         if new_el.id.is_empty() {
-            new_el.id = elementor::generate_id();
+            new_el.id = crate::elementor::generate_id();
         }
         let new_id = new_el.id.clone();
 
-        let mut tree = elementor::get_page_elements(wp, page_id).await?;
-        if !elementor::insert_at(&mut tree, parent_id.as_deref(), position, new_el) {
+        let svc = ElementorService::new(wp);
+        let mut tree = svc.get_tree(page_id).await?;
+        if !tree.insert(parent_id.as_deref(), position, new_el) {
             return Ok(ToolResult::error(format!("Parent {} not found", parent_id.unwrap_or_default())));
         }
-        elementor::set_page_elements(wp, page_id, &tree).await?;
+        svc.save_tree(page_id, &tree).await?;
 
         Ok(ToolResult::text(format!("Added element {new_id} to page {page_id}")))
     }
@@ -122,16 +114,15 @@ impl Tool for UpdateElement {
         let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
         let new_settings = args.get("settings").ok_or_else(|| anyhow::anyhow!("settings required"))?.clone();
 
-        let mut tree = elementor::get_page_elements(wp, page_id).await?;
-        let found = elementor::mutate_by_id(&mut tree, &eid, &|el| {
-            elementor::merge_settings(&mut el.settings, &new_settings);
-        });
+        let svc = ElementorService::new(wp);
+        let mut tree = svc.get_tree(page_id).await?;
+        let found = tree.mutate(&eid, |el| el.merge_settings(&new_settings));
 
         if !found {
             return Ok(ToolResult::error(format!("Element {eid} not found on page {page_id}")));
         }
 
-        elementor::set_page_elements(wp, page_id, &tree).await?;
+        svc.save_tree(page_id, &tree).await?;
         Ok(ToolResult::text(format!("Updated settings for element {eid} on page {page_id}")))
     }
 }
@@ -161,10 +152,11 @@ impl Tool for RemoveElement {
         let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
         let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
 
-        let mut tree = elementor::get_page_elements(wp, page_id).await?;
-        match elementor::remove_by_id(&mut tree, &eid) {
+        let svc = ElementorService::new(wp);
+        let mut tree = svc.get_tree(page_id).await?;
+        match tree.remove(&eid) {
             Some(_) => {
-                elementor::set_page_elements(wp, page_id, &tree).await?;
+                svc.save_tree(page_id, &tree).await?;
                 Ok(ToolResult::text(format!("Removed element {eid} from page {page_id}")))
             }
             None => Ok(ToolResult::error(format!("Element {eid} not found on page {page_id}"))),
@@ -201,16 +193,17 @@ impl Tool for MoveElement {
         let target = str_arg(&args, "target_parent_id");
         let position = usize_arg(&args, "position").unwrap_or(usize::MAX);
 
-        let mut tree = elementor::get_page_elements(wp, page_id).await?;
+        let svc = ElementorService::new(wp);
+        let mut tree = svc.get_tree(page_id).await?;
 
-        let el = elementor::remove_by_id(&mut tree, &eid)
+        let el = tree.remove(&eid)
             .ok_or_else(|| anyhow::anyhow!("Element {eid} not found"))?;
 
-        if !elementor::insert_at(&mut tree, target.as_deref(), position, el) {
+        if !tree.insert(target.as_deref(), position, el) {
             return Ok(ToolResult::error(format!("Target parent {} not found", target.unwrap_or_default())));
         }
 
-        elementor::set_page_elements(wp, page_id, &tree).await?;
+        svc.save_tree(page_id, &tree).await?;
         Ok(ToolResult::text(format!("Moved element {eid} on page {page_id}")))
     }
 }
@@ -240,36 +233,21 @@ impl Tool for DuplicateElement {
         let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
         let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
 
-        let mut tree = elementor::get_page_elements(wp, page_id).await?;
-        let original = elementor::find_by_id(&tree, &eid)
-            .ok_or_else(|| anyhow::anyhow!("Element {eid} not found"))?;
+        let svc = ElementorService::new(wp);
+        let mut tree = svc.get_tree(page_id).await?;
 
-        let mut clone = original.clone();
-        elementor::regenerate_ids(&mut clone);
+        let mut clone = tree.find(&eid)
+            .ok_or_else(|| anyhow::anyhow!("Element {eid} not found"))?;
+        clone.regenerate_ids();
         let clone_id = clone.id.clone();
 
-        // Insert clone right after original — find parent and position
-        if !insert_after(&mut tree, &eid, clone) {
+        if !tree.insert_after(&eid, clone) {
             return Ok(ToolResult::error(format!("Could not insert clone after {eid}")));
         }
 
-        elementor::set_page_elements(wp, page_id, &tree).await?;
+        svc.save_tree(page_id, &tree).await?;
         Ok(ToolResult::text(format!("Duplicated {eid} → {clone_id} on page {page_id}")))
     }
-}
-
-/// Insert `new_el` right after the element with `after_id` in its parent's children.
-fn insert_after(elements: &mut Vec<elementor::Element>, after_id: &str, new_el: elementor::Element) -> bool {
-    if let Some(pos) = elements.iter().position(|e| e.id == after_id) {
-        elements.insert(pos + 1, new_el);
-        return true;
-    }
-    for el in elements.iter_mut() {
-        if insert_after(&mut el.elements, after_id, new_el.clone()) {
-            return true;
-        }
-    }
-    false
 }
 
 // ── FindElements ──────────────────────────────────────────────────────────────
@@ -301,8 +279,8 @@ impl Tool for FindElements {
         let sk = str_arg(&args, "setting_key");
         let sv = str_arg(&args, "setting_value");
 
-        let tree = elementor::get_page_elements(wp, page_id).await?;
-        let results = elementor::search(&tree, wt.as_deref(), sk.as_deref(), sv.as_deref());
+        let tree = ElementorService::new(wp).get_tree(page_id).await?;
+        let results = tree.search(wt.as_deref(), sk.as_deref(), sv.as_deref());
 
         if results.is_empty() {
             return Ok(ToolResult::text("No matching elements found."));
@@ -340,8 +318,8 @@ impl Tool for GetElementTree {
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
         let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
 
-        let tree = elementor::get_page_elements(wp, page_id).await?;
-        let flat = elementor::flatten_tree(&tree, "");
+        let tree = ElementorService::new(wp).get_tree(page_id).await?;
+        let flat = tree.flatten();
 
         if flat.is_empty() {
             return Ok(ToolResult::text("Page has no Elementor elements."));

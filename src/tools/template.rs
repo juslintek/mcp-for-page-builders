@@ -2,12 +2,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::args::{str_arg, u64_arg};
+use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
-
-fn str_arg(args: &Value, key: &str) -> Option<String> { args.get(key)?.as_str().map(|s| s.to_string()) }
-fn u64_arg(args: &Value, key: &str) -> Option<u64> { args.get(key)?.as_u64() }
 
 fn parse_conditions(args: &Value) -> Option<Vec<String>> {
     args.get("conditions")?.as_array().map(|arr| {
@@ -54,9 +53,9 @@ impl Tool for CreateTemplate {
 
         // Set display conditions (post meta + global option + cache clear)
         if let Some(conditions) = parse_conditions(&args) {
-            wp.set_template_conditions(id, &tpl_type, &conditions).await?;
+            ElementorService::new(wp).set_template_conditions(id, &tpl_type, &conditions).await?;
         } else {
-            wp.clear_elementor_cache().await?;
+            ElementorService::new(wp).clear_cache().await?;
         }
 
         Ok(ToolResult::text(format!("Created {tpl_type} template [{id}]: {title}")))
@@ -113,9 +112,9 @@ impl Tool for UpdateTemplate {
             let tpl = wp.get(&format!("wp/v2/elementor_library/{id}?context=edit")).await?;
             let tpl_type = tpl["meta"]["_elementor_template_type"]
                 .as_str().unwrap_or("page").to_string();
-            wp.set_template_conditions(id, &tpl_type, &conditions).await?;
+            ElementorService::new(wp).set_template_conditions(id, &tpl_type, &conditions).await?;
         } else {
-            wp.clear_elementor_cache().await?;
+            ElementorService::new(wp).clear_cache().await?;
         }
 
         Ok(ToolResult::text(format!("Updated template [{id}]")))

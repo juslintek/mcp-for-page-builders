@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 
 use crate::cdp;
+use crate::elementor::generate_id;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
@@ -170,9 +171,7 @@ fn add_typography(settings: &mut Map<String, Value>, css: &Map<String, Value>) {
 }
 
 fn rand_id() -> String {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    format!("{:08x}", rng.random::<u32>())
+    generate_id()
 }
 
 fn widget(widget_type: &str, id: &str, settings: Map<String, Value>) -> Value {

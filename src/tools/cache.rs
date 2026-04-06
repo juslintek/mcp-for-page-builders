@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
@@ -19,7 +20,7 @@ impl Tool for ClearCache {
     }
 
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
-        wp.clear_elementor_cache().await?;
+        ElementorService::new(wp).clear_cache().await?;
         Ok(ToolResult::text("Elementor CSS cache cleared."))
     }
 }

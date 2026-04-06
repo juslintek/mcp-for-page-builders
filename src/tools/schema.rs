@@ -2,14 +2,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
+use crate::args::str_arg;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
-
-fn str_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key)?.as_str().map(|s| s.to_string())
-}
 
 // ── Schema types ──────────────────────────────────────────────────────────────
 
@@ -547,50 +545,63 @@ fn all_schemas() -> Vec<WidgetSchema> {
     ]
 }
 
-// ── Schema lookup ─────────────────────────────────────────────────────────────
+// ── SchemaRegistry ────────────────────────────────────────────────────────────
 
-pub fn build_schema_map() -> HashMap<&'static str, &'static WidgetSchema> {
-    // Leak the vec so we get 'static references — this runs once at startup
-    let schemas: &'static Vec<WidgetSchema> = Box::leak(Box::new(all_schemas()));
-    let mut map = HashMap::new();
-    for s in schemas.iter() {
-        map.insert(s.widget_type, s);
-    }
-    map
+static REGISTRY: OnceLock<SchemaRegistry> = OnceLock::new();
+
+/// Singleton registry for widget schemas. Initialised once on first access.
+pub struct SchemaRegistry {
+    schemas: &'static Vec<WidgetSchema>,
+    by_type: HashMap<&'static str, &'static WidgetSchema>,
 }
 
-pub fn all_valid_keys(schema: &WidgetSchema) -> Vec<&str> {
-    let mut keys: Vec<&str> = Vec::new();
-    keys.extend_from_slice(schema.settings);
-    keys.extend_from_slice(COMMON_SETTINGS);
-    // Add typography keys for widgets that typically have text
-    let text_widgets = ["heading", "text-editor", "button", "icon-box", "image-box",
-        "counter", "progress-bar", "testimonial", "alert", "star-rating", "icon-list",
-        "animated-headline", "blockquote", "call-to-action", "flip-box",
-        "price-table", "table-of-contents", "form"];
-    if text_widgets.contains(&schema.widget_type) {
-        keys.extend_from_slice(TYPOGRAPHY_KEYS);
+impl SchemaRegistry {
+    pub fn global() -> &'static SchemaRegistry {
+        REGISTRY.get_or_init(|| {
+            let schemas: &'static Vec<WidgetSchema> = Box::leak(Box::new(all_schemas()));
+            let by_type = schemas.iter().map(|s| (s.widget_type, s)).collect();
+            SchemaRegistry { schemas, by_type }
+        })
     }
-    keys
-}
 
-pub fn suggest_fix(key: &str, schema: &WidgetSchema) -> Option<String> {
-    // Check widget-specific aliases
-    for (wrong, right) in schema.aliases {
-        if *wrong == key { return Some(right.to_string()); }
+    pub fn get(&self, widget_type: &str) -> Option<&'static WidgetSchema> {
+        self.by_type.get(widget_type).copied()
     }
-    // Check common aliases
-    for (wrong, right) in COMMON_ALIASES {
-        if *wrong == key { return Some(right.to_string()); }
+
+    pub fn all(&self) -> &[WidgetSchema] {
+        self.schemas
     }
-    // Fuzzy: check if key is a substring of any valid key
-    let valid = all_valid_keys(schema);
-    for v in &valid {
-        if v.contains(key) || key.contains(v) {
-            return Some(v.to_string());
+
+    pub fn valid_keys(&self, schema: &WidgetSchema) -> Vec<&str> {
+        let mut keys: Vec<&str> = Vec::new();
+        keys.extend_from_slice(schema.settings);
+        keys.extend_from_slice(COMMON_SETTINGS);
+        const TEXT_WIDGETS: &[&str] = &[
+            "heading", "text-editor", "button", "icon-box", "image-box",
+            "counter", "progress-bar", "testimonial", "alert", "star-rating", "icon-list",
+            "animated-headline", "blockquote", "call-to-action", "flip-box",
+            "price-table", "table-of-contents", "form",
+        ];
+        if TEXT_WIDGETS.contains(&schema.widget_type) {
+            keys.extend_from_slice(TYPOGRAPHY_KEYS);
         }
+        keys
     }
-    None
+
+    pub fn suggest_fix(&self, key: &str, schema: &WidgetSchema) -> Option<String> {
+        for (wrong, right) in schema.aliases {
+            if *wrong == key {
+                return Some(right.to_string());
+            }
+        }
+        for (wrong, right) in COMMON_ALIASES {
+            if *wrong == key {
+                return Some(right.to_string());
+            }
+        }
+        let valid = self.valid_keys(schema);
+        valid.iter().find(|v| v.contains(key) || key.contains(*v)).map(|v| v.to_string())
+    }
 }
 
 // ── ListWidgets ───────────────────────────────────────────────────────────────
@@ -608,9 +619,9 @@ impl Tool for ListWidgets {
     }
 
     async fn run(&self, _args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let schemas = all_schemas();
+        let schemas = SchemaRegistry::global().all();
         let mut lines = vec![format!("{} widget schemas available:", schemas.len())];
-        for s in &schemas {
+        for s in schemas {
             lines.push(format!("  {} [{}] — {} settings", s.widget_type, s.category, s.settings.len()));
         }
         lines.push(String::new());
@@ -641,11 +652,11 @@ impl Tool for GetWidgetSchema {
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let wt = str_arg(&args, "widget_type").ok_or_else(|| anyhow::anyhow!("widget_type required"))?;
-        let map = build_schema_map();
+        let reg = SchemaRegistry::global();
 
-        match map.get(wt.as_str()) {
+        match reg.get(&wt) {
             Some(schema) => {
-                let valid = all_valid_keys(schema);
+                let valid = reg.valid_keys(schema);
                 let aliases: HashMap<&str, &str> = schema.aliases.iter()
                     .chain(COMMON_ALIASES.iter())
                     .map(|(k, v)| (*k, *v))
@@ -663,7 +674,7 @@ impl Tool for GetWidgetSchema {
                 Ok(ToolResult::text(serde_json::to_string_pretty(&result)?))
             }
             None => {
-                let known: Vec<&str> = map.keys().copied().collect();
+                let known: Vec<&str> = reg.all().iter().map(|s| s.widget_type).collect();
                 Ok(ToolResult::error(format!(
                     "Unknown widget type '{wt}'. Known types: {}",
                     known.join(", ")
@@ -699,7 +710,6 @@ impl Tool for ValidateElement {
         let el_type = el.get("elType").and_then(|v| v.as_str()).unwrap_or("");
         let widget_type = el.get("widgetType").and_then(|v| v.as_str());
 
-        // Structural checks
         let mut errors: Vec<String> = Vec::new();
         let mut warnings: Vec<String> = Vec::new();
 
@@ -720,14 +730,14 @@ impl Tool for ValidateElement {
                 }
             };
 
-            let map = build_schema_map();
-            match map.get(wt) {
+            let reg = SchemaRegistry::global();
+            match reg.get(wt) {
                 Some(schema) => {
-                    let valid = all_valid_keys(schema);
+                    let valid = reg.valid_keys(schema);
                     if let Some(settings) = el.get("settings").and_then(|s| s.as_object()) {
                         for key in settings.keys() {
                             if !valid.iter().any(|v| v == key) {
-                                match suggest_fix(key, schema) {
+                                match reg.suggest_fix(key, schema) {
                                     Some(suggestion) => errors.push(format!(
                                         "Invalid setting '{key}' on widget '{wt}' — did you mean '{suggestion}'?"
                                     )),

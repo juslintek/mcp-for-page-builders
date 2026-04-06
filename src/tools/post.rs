@@ -2,12 +2,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::args::{str_arg, u64_arg};
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
-
-fn str_arg(args: &Value, key: &str) -> Option<String> { args.get(key)?.as_str().map(|s| s.to_string()) }
-fn u64_arg(args: &Value, key: &str) -> Option<u64> { args.get(key)?.as_u64() }
 
 pub struct CreatePost;
 #[async_trait]

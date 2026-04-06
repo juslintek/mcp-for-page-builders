@@ -33,9 +33,12 @@ impl WpClient {
     }
 
     pub async fn get(&self, path: &str) -> Result<Value> {
-        let resp = self.http.get(self.url(path))
+        let resp = self
+            .http
+            .get(self.url(path))
             .header(AUTHORIZATION, &self.auth)
-            .send().await
+            .send()
+            .await
             .context("WP GET request failed")?;
         let status = resp.status();
         let body: Value = resp.json().await.context("WP GET parse failed")?;
@@ -46,11 +49,14 @@ impl WpClient {
     }
 
     pub async fn post(&self, path: &str, body: &Value) -> Result<Value> {
-        let resp = self.http.post(self.url(path))
+        let resp = self
+            .http
+            .post(self.url(path))
             .header(AUTHORIZATION, &self.auth)
             .header(CONTENT_TYPE, "application/json")
             .json(body)
-            .send().await
+            .send()
+            .await
             .context("WP POST request failed")?;
         let status = resp.status();
         let result: Value = resp.json().await.context("WP POST parse failed")?;
@@ -61,9 +67,12 @@ impl WpClient {
     }
 
     pub async fn delete(&self, path: &str) -> Result<Value> {
-        let resp = self.http.delete(self.url(path))
+        let resp = self
+            .http
+            .delete(self.url(path))
             .header(AUTHORIZATION, &self.auth)
-            .send().await
+            .send()
+            .await
             .context("WP DELETE request failed")?;
         let status = resp.status();
         let body: Value = resp.json().await.context("WP DELETE parse failed")?;
@@ -71,61 +80,5 @@ impl WpClient {
             anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&body)?);
         }
         Ok(body)
-    }
-
-    /// Clear Elementor CSS cache — call after every write operation.
-    pub async fn clear_elementor_cache(&self) -> Result<()> {
-        // Ignore errors — endpoint may not exist on older Elementor versions
-        let _ = self.delete("elementor/v1/cache").await;
-        Ok(())
-    }
-
-    /// Set Theme Builder display conditions for a template.
-    ///
-    /// Elementor Pro requires conditions in TWO places:
-    /// 1. Post meta `_elementor_conditions` — a plain array like `["include/general"]`
-    /// 2. WordPress option `elementor_pro_theme_builder_conditions` — maps type→id→conditions
-    ///
-    /// After setting both, the CSS cache must be cleared.
-    pub async fn set_template_conditions(
-        &self,
-        template_id: u64,
-        template_type: &str,
-        conditions: &[String],
-    ) -> Result<()> {
-        // 1. Set post meta — send as plain array (WP REST serializes to PHP array)
-        let cond_values: Vec<Value> = conditions.iter().map(|c| Value::String(c.clone())).collect();
-        self.post(
-            &format!("wp/v2/elementor_library/{template_id}"),
-            &serde_json::json!({ "meta": { "_elementor_conditions": cond_values } }),
-        ).await?;
-
-        // 2. Update the global conditions option
-        // Read current value
-        let current = self.get("elementor-mcp/v1/option/elementor_pro_theme_builder_conditions").await
-            .unwrap_or(serde_json::json!({}));
-        let mut map = match current.as_object() {
-            Some(m) => m.clone(),
-            None => serde_json::Map::new(),
-        };
-
-        // Add this template under its type
-        let type_entry = map.entry(template_type.to_string())
-            .or_insert_with(|| serde_json::json!({}));
-        if let Some(obj) = type_entry.as_object_mut() {
-            obj.insert(
-                template_id.to_string(),
-                Value::Array(cond_values.clone()),
-            );
-        }
-
-        // Write back
-        self.post(
-            "elementor-mcp/v1/option/elementor_pro_theme_builder_conditions",
-            &Value::Object(map),
-        ).await.ok(); // best-effort — endpoint may not exist yet
-
-        self.clear_elementor_cache().await?;
-        Ok(())
     }
 }

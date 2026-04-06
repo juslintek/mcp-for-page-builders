@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::elementor::{self, generate_id};
+use crate::elementor::{Element, ElementorService, generate_id};
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use super::Tool;
@@ -57,40 +57,40 @@ impl Tool for SeedContent {
     }
 }
 
-async fn create_page(wp: &WpClient, title: &str, elements: &[elementor::Element]) -> Result<u64> {
-    let data = elementor::serialize_data(elements)?;
+async fn create_page(wp: &WpClient, title: &str, elements: &[Element]) -> Result<u64> {
+    let data = serde_json::to_string(elements)?;
     let body = json!({
         "title": title, "status": "publish",
         "meta": { "_elementor_data": data, "_elementor_edit_mode": "builder" }
     });
     let result = wp.post("wp/v2/pages", &body).await?;
-    wp.clear_elementor_cache().await?;
+    ElementorService::new(wp).clear_cache().await?;
     Ok(result["id"].as_u64().unwrap_or(0))
 }
 
-fn w(wt: &str, s: Value) -> elementor::Element {
-    elementor::Element {
+fn w(wt: &str, s: Value) -> Element {
+    Element {
         id: generate_id(), el_type: "widget".into(), widget_type: Some(wt.into()),
         settings: s, elements: vec![], extra: Default::default(),
     }
 }
 
-fn c(settings: Value, children: Vec<elementor::Element>) -> elementor::Element {
-    elementor::Element {
+fn c(settings: Value, children: Vec<Element>) -> Element {
+    Element {
         id: generate_id(), el_type: "container".into(), widget_type: None,
         settings, elements: children, extra: Default::default(),
     }
 }
 
-fn row(children: Vec<elementor::Element>) -> elementor::Element {
+fn row(children: Vec<Element>) -> Element {
     c(json!({"flex_direction": "row", "flex_gap": {"unit": "px", "size": 20}}), children)
 }
 
-fn col(children: Vec<elementor::Element>) -> elementor::Element {
+fn col(children: Vec<Element>) -> Element {
     c(json!({"flex_grow": 1}), children)
 }
 
-fn build_landing(prefix: &str) -> Vec<elementor::Element> {
+fn build_landing(prefix: &str) -> Vec<Element> {
     vec![
         // Hero
         c(json!({"background_background": "classic", "background_color": "#1a1a2e",
@@ -134,7 +134,7 @@ fn build_landing(prefix: &str) -> Vec<elementor::Element> {
     ]
 }
 
-fn build_features(_prefix: &str) -> Vec<elementor::Element> {
+fn build_features(_prefix: &str) -> Vec<Element> {
     vec![
         c(json!({"padding": {"unit":"px","top":"60","bottom":"40","isLinked":false}}), vec![
             w("heading", json!({"title": "Features", "header_size": "h1", "align": "center"})),
@@ -170,7 +170,7 @@ fn build_features(_prefix: &str) -> Vec<elementor::Element> {
     ]
 }
 
-fn build_about(_prefix: &str) -> Vec<elementor::Element> {
+fn build_about(_prefix: &str) -> Vec<Element> {
     vec![
         c(json!({"background_color": "#1a1a2e", "padding": {"unit":"px","top":"80","bottom":"80","isLinked":false}}), vec![
             w("heading", json!({"title": "About Us", "header_size": "h1", "title_color": "#fff", "align": "center"})),
@@ -202,7 +202,7 @@ fn build_about(_prefix: &str) -> Vec<elementor::Element> {
     ]
 }
 
-fn build_contact(_prefix: &str) -> Vec<elementor::Element> {
+fn build_contact(_prefix: &str) -> Vec<Element> {
     vec![
         c(json!({"padding": {"unit":"px","top":"60","bottom":"60","isLinked":false}}), vec![
             w("heading", json!({"title": "Contact Us", "header_size": "h1", "align": "center"})),
@@ -228,7 +228,7 @@ fn build_contact(_prefix: &str) -> Vec<elementor::Element> {
     ]
 }
 
-fn build_widget_showcase() -> Vec<elementor::Element> {
+fn build_widget_showcase() -> Vec<Element> {
     vec![
         c(json!({"padding": {"unit":"px","top":"40","bottom":"20","isLinked":false}}), vec![
             w("heading", json!({"title": "Widget Showcase", "header_size": "h1", "align": "center"})),
