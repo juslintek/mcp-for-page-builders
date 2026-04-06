@@ -1,0 +1,18 @@
+services:
+  wordpress:
+    image: juslintek/wp-sqlite-elementor-server:latest
+    ports:
+      - "${WP_PORT:-8080}:8080"
+    environment:
+      WP_ADMIN_USER: "${WP_ADMIN_USER:-admin}"
+      WP_ADMIN_PASS: "${WP_ADMIN_PASS:-admin}"
+      WP_ADMIN_EMAIL: "${WP_ADMIN_EMAIL:-admin@test.local}"
+      WP_TITLE: "${WP_TITLE:-Elementor MCP Test}"
+      WP_DEBUG: "${WP_DEBUG:-false}"
+    volumes:
+      - "${WP_DATABASE_DIR:-wp_database}:/wp/wp-content/database"
+      - "${WP_UPLOADS_DIR:-wp_uploads}:/wp/wp-content/uploads"
+
+volumes:
+  wp_database:
+  wp_uploads:

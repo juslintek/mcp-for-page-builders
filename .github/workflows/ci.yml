@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --test unit
+
+  integration:
+    name: Integration + E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Start WordPress (FrankenPHP + SQLite + Elementor)
+        run: |
+          docker run -d --name wp-test -p 8080:8080 \
+            -e WP_ADMIN_USER=admin \
+            -e WP_ADMIN_PASS=admin \
+            juslintek/wp-sqlite-elementor-server:latest
+
+      - name: Wait for WordPress
+        run: |
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8080/wp-json/ -o /dev/null 2>/dev/null && break
+            sleep 3
+          done
+          curl -fsS http://localhost:8080/wp-json/ -o /dev/null
+
+      - name: Read app password
+        run: |
+          APP_PASS=$(docker exec wp-test /bin/sh -c "cat /wp/app-password.txt")
+          echo "WP_TEST_PASS=$APP_PASS" >> $GITHUB_ENV
+
+      - name: Integration tests (all tools)
+        env:
+          WP_TEST_URL: http://localhost:8080
+          WP_TEST_USER: admin
+        run: cargo test --test integration -- --test-threads=1
+
+      - name: E2E tests (widgets, layouts, pages, HTML conversion)
+        env:
+          WP_TEST_URL: http://localhost:8080
+          WP_TEST_USER: admin
+        run: cargo test --test e2e -- --test-threads=1
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f wp-test 2>/dev/null || true
+
+  clippy:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -- -D warnings
+
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: ls -lh target/release/elementor-mcp
