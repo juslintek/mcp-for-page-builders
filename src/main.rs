@@ -1,4 +1,6 @@
 mod args;
+mod types;
+mod util;
 mod mcp;
 mod wp;
 mod elementor;
@@ -23,7 +25,7 @@ async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     // Subcommand: setup
-    if args.get(1).map(|s| s.as_str()) == Some("setup") {
+    if args.get(1).map(std::string::String::as_str) == Some("setup") {
         let url = args.get(2).ok_or_else(|| anyhow::anyhow!(
             "Usage: elementor-mcp setup <wordpress-url>\n  Example: elementor-mcp setup https://my-site.com"
         ))?;
@@ -40,18 +42,15 @@ async fn main() -> Result<()> {
         .init();
 
     // Try env vars first, then saved config
-    let (url, user, pass) = match std::env::var("WP_URL") {
-        Ok(url) => (
-            url.clone(),
-            env_or("WP_APP_USER", "admin"),
-            std::env::var("WP_APP_PASSWORD").unwrap_or_default(),
-        ),
-        Err(_) => {
-            // Try loading from saved config
-            eprintln!("No WP_URL set. Set WP_URL, WP_APP_USER, WP_APP_PASSWORD env vars.");
-            eprintln!("Or run: elementor-mcp setup <wordpress-url>");
-            std::process::exit(1);
-        }
+    let (url, user, pass) = if let Ok(url) = std::env::var("WP_URL") { (
+        url,
+        env_or("WP_APP_USER", "admin"),
+        std::env::var("WP_APP_PASSWORD").unwrap_or_default(),
+    ) } else {
+        // Try loading from saved config
+        eprintln!("No WP_URL set. Set WP_URL, WP_APP_USER, WP_APP_PASSWORD env vars.");
+        eprintln!("Or run: elementor-mcp setup <wordpress-url>");
+        std::process::exit(1);
     };
 
     let wp = WpClient::new(&url, &user, &pass);
@@ -61,9 +60,8 @@ async fn main() -> Result<()> {
     info!("elementor-mcp started ({} tools) → {}", tools.len(), url);
 
     loop {
-        let req = match stdio.read_request().await? {
-            Some(r) => r,
-            None => break,
+        let Some(req) = stdio.read_request().await? else {
+            break;
         };
         // Notifications (no id) must not receive a response per JSON-RPC 2.0
         if req.id.is_none() {
@@ -95,7 +93,7 @@ async fn handle(
         }
         "tools/call" => {
             let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             match tools.iter().find(|t| t.def().name == name) {
                 Some(t) => {
                     info!("Calling tool: {name}");

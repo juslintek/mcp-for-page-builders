@@ -81,4 +81,10 @@ impl WpClient {
         }
         Ok(body)
     }
+
+    /// Clear Elementor CSS cache. Ignores errors — endpoint may not exist on older versions.
+    pub async fn clear_elementor_cache(&self) -> Result<()> {
+        let _ = self.delete("elementor/v1/cache").await;
+        Ok(())
+    }
 }

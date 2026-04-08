@@ -202,14 +202,13 @@ fn try_parse_heading(s: &str) -> Option<(Element, &str)> {
     for n in 1..=6 {
         let open = format!("<h{n}");
         let close = format!("</h{n}>");
-        if s.starts_with(&open) {
-            if let Some(end) = s.find(&close) {
+        if s.starts_with(&open)
+            && let Some(end) = s.find(&close) {
                 let full = &s[..end + close.len()];
                 // Extract inner text (strip tags)
                 let inner = full.split('>').nth(1).unwrap_or("").split('<').next().unwrap_or("").trim();
                 return Some((heading(inner, &format!("h{n}")), &s[end + close.len()..]));
             }
-        }
     }
     None
 }
@@ -232,7 +231,7 @@ fn try_parse_img(s: &str) -> Option<(Element, &str)> {
 
 fn try_parse_tag(s: &str) -> Option<(&str, &str)> {
     if !s.starts_with('<') { return None; }
-    let tag_name_end = s[1..].find(|c: char| c == ' ' || c == '>' || c == '/')? + 1;
+    let tag_name_end = s[1..].find([' ', '>', '/'])? + 1;
     let tag_name = &s[1..tag_name_end];
     // Self-closing
     if let Some(end) = s.find("/>") {
@@ -245,11 +244,11 @@ fn try_parse_tag(s: &str) -> Option<(&str, &str)> {
         return Some((&s[..e], &s[e..]));
     }
     // No closing tag — take until next tag
-    let next = s[1..].find('<').map(|i| i + 1).unwrap_or(s.len());
+    let next = s[1..].find('<').map_or(s.len(), |i| i + 1);
     Some((&s[..next], &s[next..]))
 }
 
-fn extract_attr<'a>(tag: &'a str, attr: &str) -> Option<String> {
+fn extract_attr(tag: &str, attr: &str) -> Option<String> {
     let pattern = format!("{attr}=\"");
     let start = tag.find(&pattern)? + pattern.len();
     let end = tag[start..].find('"')? + start;
@@ -258,7 +257,7 @@ fn extract_attr<'a>(tag: &'a str, attr: &str) -> Option<String> {
 
 // ── Page helpers ──────────────────────────────────────────────────────────────
 
-/// Serialize elements to the JSON string format WordPress expects.
+/// Serialize elements to the JSON string format `WordPress` expects.
 pub fn to_elementor_data(elements: &[Element]) -> String {
     serde_json::to_string(elements).unwrap()
 }

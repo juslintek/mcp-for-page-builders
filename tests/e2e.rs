@@ -1,5 +1,5 @@
-//! E2E tests — create real pages on WordPress, verify structure, clean up.
-//! Requires: WP_TEST_URL, WP_TEST_USER, WP_TEST_PASS env vars.
+//! E2E tests — create real pages on `WordPress`, verify structure, clean up.
+//! Requires: `WP_TEST_URL`, `WP_TEST_USER`, `WP_TEST_PASS` env vars.
 
 mod helpers;
 

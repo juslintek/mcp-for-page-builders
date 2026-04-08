@@ -161,7 +161,7 @@ fn parse_size(s: &str) -> Value {
 
 fn parse_trbl(s: &str) -> Value {
     let parts: Vec<&str> = s.split_whitespace().collect();
-    let unit = parts.first().map(|p| parse_unit(p)).unwrap_or("px");
+    let unit = parts.first().map_or("px", |p| parse_unit(p));
     match parts.len() {
         1 => { let v = parse_num(parts[0]); json!({"top": v.to_string(), "right": v.to_string(), "bottom": v.to_string(), "left": v.to_string(), "unit": unit, "isLinked": true}) }
         2 => { let tb = parse_num(parts[0]); let lr = parse_num(parts[1]); json!({"top": tb.to_string(), "right": lr.to_string(), "bottom": tb.to_string(), "left": lr.to_string(), "unit": unit, "isLinked": false}) }
@@ -172,7 +172,7 @@ fn parse_trbl(s: &str) -> Value {
 
 fn parse_trbl_radius(s: &str) -> Value {
     let parts: Vec<&str> = s.split_whitespace().collect();
-    let unit = parts.first().map(|p| parse_unit(p)).unwrap_or("px");
+    let unit = parts.first().map_or("px", |p| parse_unit(p));
     match parts.len() {
         1 => { let v = parse_num(parts[0]); json!({"top": v.to_string(), "right": v.to_string(), "bottom": v.to_string(), "left": v.to_string(), "unit": unit, "isLinked": true}) }
         _ => { json!({"top": parse_num(parts[0]).to_string(), "right": parse_num(parts.get(1).unwrap_or(&"0")).to_string(), "bottom": parse_num(parts.get(2).unwrap_or(&"0")).to_string(), "left": parse_num(parts.get(3).unwrap_or(&"0")).to_string(), "unit": unit, "isLinked": false}) }

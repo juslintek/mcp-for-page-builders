@@ -114,7 +114,7 @@ fn merge_settings_partial_update() {
 #[test]
 fn regenerate_ids_all_unique() {
     let mut el = make_container("p", vec![make_widget("c1", "heading"), make_widget("c2", "button")]);
-    let old = vec![el.id.clone(), el.elements[0].id.clone(), el.elements[1].id.clone()];
+    let old = [el.id.clone(), el.elements[0].id.clone(), el.elements[1].id.clone()];
     regenerate_ids(&mut el);
     assert_ne!(el.id, old[0]);
     assert_ne!(el.elements[0].id, old[1]);

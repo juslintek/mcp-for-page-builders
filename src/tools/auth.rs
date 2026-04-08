@@ -7,6 +7,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
 use crate::mcp::{ToolDef, ToolResult};
+use crate::util::{config_path, urldecode, urlencode, uuid};
 use crate::wp::WpClient;
 use super::Tool;
 
@@ -34,7 +35,7 @@ impl Tool for Authenticate {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let preset_url = args.get("wp_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let preset_url = args.get("wp_url").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
 
         // Bind to a random port
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -60,8 +61,7 @@ impl Tool for Authenticate {
 
         let open_url = format!("{base}/");
         let msg = format!(
-            "Open this URL in your browser to authenticate:\n\n  {open_url}\n\nWaiting for approval (timeout: {}s)...",
-            TIMEOUT_SECS
+            "Open this URL in your browser to authenticate:\n\n  {open_url}\n\nWaiting for approval (timeout: {TIMEOUT_SECS}s)..."
         );
 
         // Wait for auth to complete or timeout
@@ -178,46 +178,6 @@ fn extract_from_qs(qs: &str, key: &str) -> Option<String> {
     None
 }
 
-fn urldecode(s: &str) -> String {
-    let mut out = String::new();
-    let mut bytes = s.bytes();
-    while let Some(b) = bytes.next() {
-        match b {
-            b'%' => {
-                let h = bytes.next().unwrap_or(0);
-                let l = bytes.next().unwrap_or(0);
-                if let Ok(v) = u8::from_str_radix(&String::from_utf8(vec![h, l]).unwrap_or_default(), 16) {
-                    out.push(v as char);
-                }
-            }
-            b'+' => out.push(' '),
-            _ => out.push(b as char),
-        }
-    }
-    out
-}
-
-fn urlencode(s: &str) -> String {
-    s.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => String::from(b as char),
-        _ => format!("%{b:02X}"),
-    }).collect()
-}
-
-fn uuid() -> String {
-    use rand::Rng;
-    let mut r = rand::rng();
-    format!("{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-        r.random::<u32>(), r.random::<u16>(), r.random::<u16>(),
-        r.random::<u16>(), r.random::<u64>() & 0xFFFFFFFFFFFF)
-}
-
-fn config_path(wp_url: &str) -> std::path::PathBuf {
-    let host = wp_url.replace("https://", "").replace("http://", "").replace(['/', ':', '.'], "_");
-    let dir = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    std::path::PathBuf::from(dir).join(".config").join("elementor-mcp").join(format!("{host}.json"))
-}
-
 fn save_config(wp_url: &str, user: &str, password: &str) -> Result<()> {
     let path = config_path(wp_url);
     std::fs::create_dir_all(path.parent().unwrap())?;
@@ -230,9 +190,8 @@ fn http_response(status: &str, content_type: &str, body: &str) -> String {
     format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len())
 }
 
-fn page_form(port: u16, preset: Option<&str>) -> String {
+fn page_form(_port: u16, preset: Option<&str>) -> String {
     let val = preset.unwrap_or("");
-    let disabled = if preset.is_some() { "" } else { "" };
     http_response("200 OK", "text/html", &format!(r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Elementor MCP — Connect</title>
 <style>
@@ -254,7 +213,7 @@ button:hover{{background:#c73e54}}
 <p>Enter your WordPress site URL to authorize Elementor MCP access.</p>
 <form method="POST" action="/connect">
 <label for="wp_url">WordPress URL</label>
-<input type="url" name="wp_url" id="wp_url" value="{val}" placeholder="https://my-site.com" required {disabled}>
+<input type="url" name="wp_url" id="wp_url" value="{val}" placeholder="https://my-site.com" required>
 <button type="submit">Connect →</button>
 </form>
 </div></body></html>"#))

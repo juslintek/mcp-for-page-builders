@@ -41,7 +41,7 @@ pub async fn browser() -> Result<Arc<Browser>> {
             .context("Failed to launch Chrome via CDP")?;
 
         tokio::spawn(async move {
-            while let Some(_) = handler.next().await {}
+            while handler.next().await.is_some() {}
         });
 
         tracing::info!("CDP Chrome session started");

@@ -71,14 +71,14 @@ async fn create_page(wp: &WpClient, title: &str, elements: &[Element]) -> Result
 fn w(wt: &str, s: Value) -> Element {
     Element {
         id: generate_id(), el_type: "widget".into(), widget_type: Some(wt.into()),
-        settings: s, elements: vec![], extra: Default::default(),
+        settings: s, elements: vec![], extra: std::collections::HashMap::default(),
     }
 }
 
 fn c(settings: Value, children: Vec<Element>) -> Element {
     Element {
         id: generate_id(), el_type: "container".into(), widget_type: None,
-        settings, elements: children, extra: Default::default(),
+        settings, elements: children, extra: std::collections::HashMap::default(),
     }
 }
 

@@ -41,14 +41,14 @@ impl Tool for InspectPage {
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?;
         let selector = args["selector"].as_str().ok_or_else(|| anyhow::anyhow!("selector required"))?;
-        let max_depth = args.get("max_depth").and_then(|v| v.as_u64()).unwrap_or(3);
+        let max_depth = args.get("max_depth").and_then(serde_json::Value::as_u64).unwrap_or(3);
 
         let custom_props: Option<Vec<String>> = args.get("properties")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
 
         let props_js = custom_props
-            .unwrap_or_else(|| DEFAULT_PROPS.iter().map(|s| s.to_string()).collect())
+            .unwrap_or_else(|| DEFAULT_PROPS.iter().map(std::string::ToString::to_string).collect())
             .iter()
             .map(|p| format!("'{p}'"))
             .collect::<Vec<_>>()
@@ -75,7 +75,7 @@ impl Tool for InspectPage {
 /// `props_js` is a comma-separated list of quoted CSS property names, e.g. `'color','font-size'`.
 fn build_inspect_js(selector: &str, props_js: &str, max_depth: u64) -> String {
     format!(
-        r#"(()=>{{function inspect(el,depth){{if(!el||depth<0)return null;const s=getComputedStyle(el);const b=el.getBoundingClientRect();const styles={{}};[{props_js}].forEach(p=>styles[p]=s.getPropertyValue(p));const children=[];if(depth>0){{for(const c of el.children){{const r=inspect(c,depth-1);if(r)children.push(r)}}}}const cls=el.className&&el.className.substring?el.className.substring(0,200):'';const tag=el.tagName.toLowerCase();const id=el.id?'#'+el.id:'';const clsStr=cls?'.'+cls.split(/\s+/).join('.'):'';return{{element:tag+id+clsStr,tag:el.tagName,box:{{x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}},styles,text:el.childNodes.length===1&&el.childNodes[0].nodeType===3?el.textContent.trim().substring(0,200):'',children}}}}const el=document.querySelector('{selector}');if(!el)return JSON.stringify({{error:'Element not found: {selector}'}});return JSON.stringify(inspect(el,{max_depth}))}})()"#
+        r"(()=>{{function inspect(el,depth){{if(!el||depth<0)return null;const s=getComputedStyle(el);const b=el.getBoundingClientRect();const styles={{}};[{props_js}].forEach(p=>styles[p]=s.getPropertyValue(p));const children=[];if(depth>0){{for(const c of el.children){{const r=inspect(c,depth-1);if(r)children.push(r)}}}}const cls=el.className&&el.className.substring?el.className.substring(0,200):'';const tag=el.tagName.toLowerCase();const id=el.id?'#'+el.id:'';const clsStr=cls?'.'+cls.split(/\s+/).join('.'):'';return{{element:tag+id+clsStr,tag:el.tagName,box:{{x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}},styles,text:el.childNodes.length===1&&el.childNodes[0].nodeType===3?el.textContent.trim().substring(0,200):'',children}}}}const el=document.querySelector('{selector}');if(!el)return JSON.stringify({{error:'Element not found: {selector}'}});return JSON.stringify(inspect(el,{max_depth}))}})()"
     )
 }
 

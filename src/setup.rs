@@ -1,27 +1,11 @@
 use anyhow::{Context, Result};
 use std::io::Write;
-use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
+use crate::util::{config_dir, config_path, urldecode, urlencode, uuid};
+
 const APP_NAME: &str = "elementor-mcp";
-
-/// Config file location: ~/.config/elementor-mcp/{host}.json
-fn config_dir() -> PathBuf {
-    dirs().join("elementor-mcp")
-}
-
-fn dirs() -> PathBuf {
-    std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."))
-        .join(".config")
-}
-
-fn config_path(wp_url: &str) -> PathBuf {
-    let host = wp_url.trim_end_matches('/')
-        .replace("https://", "").replace("http://", "")
-        .replace(['/', ':', '.'], "_");
-    config_dir().join(format!("{host}.json"))
-}
 
 /// Run the auto-auth setup flow.
 pub async fn run(wp_url: &str) -> Result<()> {
@@ -56,8 +40,8 @@ pub async fn run(wp_url: &str) -> Result<()> {
 
     let authorize_url = format!(
         "{auth_url}?app_name={APP_NAME}&app_id={app_id}&success_url={callback}&reject_url={callback}",
-        app_id = uuid_simple(),
-        callback = urlencoding(&callback_url),
+        app_id = uuid(),
+        callback = urlencode(&callback_url),
     );
 
     // 4. Open browser
@@ -127,18 +111,6 @@ pub async fn run(wp_url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Load saved credentials for a WordPress URL.
-pub fn load_config(wp_url: &str) -> Option<(String, String, String)> {
-    let path = config_path(wp_url);
-    let content = std::fs::read_to_string(&path).ok()?;
-    let config: serde_json::Value = serde_json::from_str(&content).ok()?;
-    Some((
-        config["wp_url"].as_str()?.to_string(),
-        config["wp_user"].as_str()?.to_string(),
-        config["wp_app_password"].as_str()?.to_string(),
-    ))
-}
-
 fn open_browser(url: &str) {
     #[cfg(target_os = "macos")]
     { let _ = std::process::Command::new("open").arg(url).spawn(); }
@@ -161,44 +133,7 @@ fn parse_query(path: &str) -> std::collections::HashMap<String, String> {
     map
 }
 
-fn urlencoding(s: &str) -> String {
-    s.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-            String::from(b as char)
-        }
-        _ => format!("%{b:02X}"),
-    }).collect()
-}
-
-fn urldecode(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.bytes();
-    while let Some(b) = chars.next() {
-        if b == b'%' {
-            let h = chars.next().unwrap_or(0);
-            let l = chars.next().unwrap_or(0);
-            let hex = String::from_utf8(vec![h, l]).unwrap_or_default();
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
-            }
-        } else if b == b'+' {
-            result.push(' ');
-        } else {
-            result.push(b as char);
-        }
-    }
-    result
-}
-
 fn base64_encode(s: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
-}
-
-fn uuid_simple() -> String {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    format!("{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-        rng.random::<u32>(), rng.random::<u16>(), rng.random::<u16>(),
-        rng.random::<u16>(), rng.random::<u64>() & 0xFFFFFFFFFFFF)
 }

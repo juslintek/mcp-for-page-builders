@@ -1,5 +1,5 @@
-//! Integration tests — cover ALL 41 MCP tools against live WordPress.
-//! Run: WP_TEST_URL=http://localhost:8080 WP_TEST_USER=admin WP_TEST_PASS=xxx cargo test --test integration
+//! Integration tests — cover ALL 41 MCP tools against live `WordPress`.
+//! Run: `WP_TEST_URL=http://localhost:8080` `WP_TEST_USER=admin` `WP_TEST_PASS=xxx` cargo test --test integration
 
 use elementor_mcp::elementor::{self, Element};
 use elementor_mcp::wp::WpClient;
@@ -103,7 +103,7 @@ async fn tool_get_page_by_slug() {
 async fn tool_list_pages() {
     let wp = require_wp!();
     let r = wp.get("wp/v2/pages?per_page=5&status=any").await.unwrap();
-    assert!(r.as_array().unwrap().len() > 0);
+    assert!(!r.as_array().unwrap().is_empty());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

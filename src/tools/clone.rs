@@ -40,7 +40,7 @@ impl Tool for CloneElement {
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?;
         let selector = args["selector"].as_str().ok_or_else(|| anyhow::anyhow!("selector required"))?;
-        let max_depth = args.get("max_depth").and_then(|v| v.as_u64()).unwrap_or(3);
+        let max_depth = args.get("max_depth").and_then(serde_json::Value::as_u64).unwrap_or(3);
 
         let js = build_dom_inspect_js(selector, max_depth);
         let page = cdp::open_page(url, 1440, 900).await?;
@@ -57,10 +57,11 @@ impl Tool for CloneElement {
 
 fn build_dom_inspect_js(selector: &str, max_depth: u64) -> String {
     format!(
-        r#"(()=>{{function inspect(el,d){{if(!el||d<0)return null;const s=getComputedStyle(el);const b=el.getBoundingClientRect();const props=['background-color','color','font-size','font-weight','font-family','padding','margin','border-radius','border','gap','display','flex-direction','justify-content','align-items','width','height','min-height','max-width','opacity','text-transform','line-height','letter-spacing','box-shadow','overflow'];const styles={{}};props.forEach(p=>{{const v=s.getPropertyValue(p);if(v&&v!=='none'&&v!=='normal'&&v!=='auto'&&v!=='0px'&&v!=='rgba(0, 0, 0, 0)')styles[p]=v}});const children=[];if(d>0)for(const c of el.children){{const r=inspect(c,d-1);if(r)children.push(r)}}const text=el.childNodes.length===1&&el.childNodes[0].nodeType===3?el.textContent.trim():'';return{{tag:el.tagName,id:el.id||'',classes:el.className?.split?.(/\s+/)||[],src:el.src||el.getAttribute('src')||'',href:el.href||el.getAttribute('href')||'',text,styles,children,box:{{w:Math.round(b.width),h:Math.round(b.height)}}}}}}const el=document.querySelector('{selector}');if(!el)return JSON.stringify({{error:'not found'}});return JSON.stringify(inspect(el,{max_depth}))}})()"#
+        r"(()=>{{function inspect(el,d){{if(!el||d<0)return null;const s=getComputedStyle(el);const b=el.getBoundingClientRect();const props=['background-color','color','font-size','font-weight','font-family','padding','margin','border-radius','border','gap','display','flex-direction','justify-content','align-items','width','height','min-height','max-width','opacity','text-transform','line-height','letter-spacing','box-shadow','overflow'];const styles={{}};props.forEach(p=>{{const v=s.getPropertyValue(p);if(v&&v!=='none'&&v!=='normal'&&v!=='auto'&&v!=='0px'&&v!=='rgba(0, 0, 0, 0)')styles[p]=v}});const children=[];if(d>0)for(const c of el.children){{const r=inspect(c,d-1);if(r)children.push(r)}}const text=el.childNodes.length===1&&el.childNodes[0].nodeType===3?el.textContent.trim():'';return{{tag:el.tagName,id:el.id||'',classes:el.className?.split?.(/\s+/)||[],src:el.src||el.getAttribute('src')||'',href:el.href||el.getAttribute('href')||'',text,styles,children,box:{{w:Math.round(b.width),h:Math.round(b.height)}}}}}}const el=document.querySelector('{selector}');if(!el)return JSON.stringify({{error:'not found'}});return JSON.stringify(inspect(el,{max_depth}))}})()"
     )
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn dom_to_elementor(node: &Value, depth: u32) -> Value {
     let tag = node["tag"].as_str().unwrap_or("DIV").to_uppercase();
     let text = node["text"].as_str().unwrap_or("");
@@ -108,33 +109,31 @@ fn dom_to_elementor(node: &Value, depth: u32) -> Value {
                 settings.insert("editor".into(), json!(format!("<p>{text}</p>")));
                 widget("text-editor", &id, settings)
             } else {
-                container(&id, settings, child_elements)
+                container(&id, settings, &child_elements)
             }
         }
     }
 }
 
+#[allow(clippy::or_fun_call)]
 fn apply_container_styles(settings: &mut Map<String, Value>, css: &Map<String, Value>) {
-    if let Some(bg) = css.get("background-color").and_then(|v| v.as_str()) {
-        if bg != "rgba(0, 0, 0, 0)" && bg != "transparent" {
+    if let Some(bg) = css.get("background-color").and_then(|v| v.as_str())
+        && bg != "rgba(0, 0, 0, 0)" && bg != "transparent" {
             settings.insert("background_background".into(), json!("classic"));
             settings.insert("background_color".into(), json!(bg));
         }
-    }
-    if let Some(br) = css.get("border-radius").and_then(|v| v.as_str()) {
-        if br != "0px" {
+    if let Some(br) = css.get("border-radius").and_then(|v| v.as_str())
+        && br != "0px" {
             let n = br.replace("px", "").parse::<f64>().unwrap_or(0.0);
             settings.insert("border_radius".into(), json!({"top":n.to_string(),"right":n.to_string(),"bottom":n.to_string(),"left":n.to_string(),"unit":"px","isLinked":true}));
         }
-    }
-    if let Some(p) = css.get("padding").and_then(|v| v.as_str()) {
-        if p != "0px" {
+    if let Some(p) = css.get("padding").and_then(|v| v.as_str())
+        && p != "0px" {
             let parts: Vec<f64> = p.split_whitespace().map(|s| s.replace("px","").parse().unwrap_or(0.0)).collect();
             if let Some(&v) = parts.first() {
                 settings.insert("padding".into(), json!({"top":v.to_string(),"right":parts.get(1).unwrap_or(&v).to_string(),"bottom":parts.get(2).unwrap_or(&v).to_string(),"left":parts.get(3).unwrap_or(parts.get(1).unwrap_or(&v)).to_string(),"unit":"px","isLinked":parts.len()==1}));
             }
         }
-    }
     if let Some(gap) = css.get("gap").and_then(|v| v.as_str()) {
         let n = gap.replace("px","").parse::<f64>().unwrap_or(0.0);
         if n > 0.0 { settings.insert("flex_gap".into(), json!({"size":n,"unit":"px"})); }
@@ -184,7 +183,7 @@ fn widget(widget_type: &str, id: &str, settings: Map<String, Value>) -> Value {
     })
 }
 
-fn container(id: &str, settings: Map<String, Value>, children: Vec<Value>) -> Value {
+fn container(id: &str, settings: Map<String, Value>, children: &[Value]) -> Value {
     json!({
         "id": id,
         "elType": "container",

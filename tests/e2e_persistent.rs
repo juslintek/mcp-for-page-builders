@@ -1,6 +1,6 @@
-//! Persistent E2E tests — creates content that stays in WordPress for visual inspection.
-//! Run: WP_TEST_URL=http://localhost:8080 WP_TEST_USER=admin WP_TEST_PASS=xxx cargo test --test e2e_persistent -- --test-threads=1
-//! Then browse to the WordPress site to see results.
+//! Persistent E2E tests — creates content that stays in `WordPress` for visual inspection.
+//! Run: `WP_TEST_URL=http://localhost:8080` `WP_TEST_USER=admin` `WP_TEST_PASS=xxx` cargo test --test `e2e_persistent` -- --test-threads=1
+//! Then browse to the `WordPress` site to see results.
 //!
 //! NO CLEANUP — everything persists.
 
@@ -26,7 +26,7 @@ async fn publish_page(wp: &WpClient, title: &str, elements: Vec<Element>) -> u64
         "title": title, "status": "publish",
         "meta": {"_elementor_data": data, "_elementor_edit_mode": "builder"}
     });
-    let r = wp.post("wp/v2/pages", &body).await.expect(&format!("Failed to create: {title}"));
+    let r = wp.post("wp/v2/pages", &body).await.unwrap_or_else(|_| panic!("Failed to create: {title}"));
     let id = r["id"].as_u64().unwrap();
     wp.clear_elementor_cache().await.ok();
     let link = r["link"].as_str().unwrap_or("");
@@ -533,8 +533,7 @@ async fn p70_seed_content() {
 #[tokio::test]
 async fn p80_template_header() {
     let wp = require_wp!();
-    let data = to_elementor_data(&vec![
-        container_with(json!({"flex_direction":"row","background_color":"#1a1a2e",
+    let data = to_elementor_data(&[container_with(json!({"flex_direction":"row","background_color":"#1a1a2e",
             "padding":{"unit":"px","top":"15","bottom":"15","left":"20","right":"20","isLinked":false},
             "align_items":"center"}), vec![
             widget("heading", json!({"title":"MySite","header_size":"h4","title_color":"#ffffff"})),
@@ -545,8 +544,7 @@ async fn p80_template_header() {
                 button_styled("Login", "/wp-login.php", "transparent", "#ffffff"),
                 button_styled("Sign Up", "#", "#e94560", "#ffffff"),
             ]),
-        ]),
-    ]);
+        ])]);
     let body = json!({"title":"E2E: Header Template","status":"publish","meta":{
         "_elementor_template_type":"header","_elementor_data":data,"_elementor_edit_mode":"builder"
     }});
@@ -557,8 +555,7 @@ async fn p80_template_header() {
 #[tokio::test]
 async fn p81_template_footer() {
     let wp = require_wp!();
-    let data = to_elementor_data(&vec![
-        container_with(json!({"background_color":"#0f0f23","padding":{"unit":"px","top":"40","bottom":"40","isLinked":false}}), vec![
+    let data = to_elementor_data(&[container_with(json!({"background_color":"#0f0f23","padding":{"unit":"px","top":"40","bottom":"40","isLinked":false}}), vec![
             columns(3, vec![
                 vec![
                     widget("heading", json!({"title":"Company","header_size":"h5","title_color":"#fff"})),
@@ -583,8 +580,7 @@ async fn p81_template_footer() {
             ]),
             widget("divider", json!({"style":"solid","color":"#333"})),
             widget("text-editor", json!({"editor":"<p style='text-align:center;color:#666;font-size:13px'>© 2026 MySite. All rights reserved.</p>"})),
-        ]),
-    ]);
+        ])]);
     let body = json!({"title":"E2E: Footer Template","status":"publish","meta":{
         "_elementor_template_type":"footer","_elementor_data":data,"_elementor_edit_mode":"builder"
     }});
@@ -595,8 +591,7 @@ async fn p81_template_footer() {
 #[tokio::test]
 async fn p82_template_single_post() {
     let wp = require_wp!();
-    let data = to_elementor_data(&vec![
-        container_with(json!({"padding":{"unit":"px","top":"40","bottom":"40","isLinked":false}}), vec![
+    let data = to_elementor_data(&[container_with(json!({"padding":{"unit":"px","top":"40","bottom":"40","isLinked":false}}), vec![
             widget("heading", json!({"title":"[Post Title Placeholder]","header_size":"h1"})),
             widget("text-editor", json!({"editor":"<p style='color:#888'>By Author | Date | Category</p>"})),
             widget("divider", json!({"style":"solid"})),
@@ -604,8 +599,7 @@ async fn p82_template_single_post() {
             widget("divider", json!({"style":"solid"})),
             widget("heading", json!({"title":"Related Posts","header_size":"h3"})),
             widget("text-editor", json!({"editor":"<p>[Related posts grid would appear here]</p>"})),
-        ]),
-    ]);
+        ])]);
     let body = json!({"title":"E2E: Single Post Template","status":"publish","meta":{
         "_elementor_template_type":"single-post","_elementor_data":data,"_elementor_edit_mode":"builder"
     }});
@@ -616,8 +610,7 @@ async fn p82_template_single_post() {
 #[tokio::test]
 async fn p83_template_archive() {
     let wp = require_wp!();
-    let data = to_elementor_data(&vec![
-        container_with(json!({"padding":{"unit":"px","top":"40","bottom":"40","isLinked":false}}), vec![
+    let data = to_elementor_data(&[container_with(json!({"padding":{"unit":"px","top":"40","bottom":"40","isLinked":false}}), vec![
             widget("heading", json!({"title":"[Archive Title]","header_size":"h1","align":"center"})),
             widget("text-editor", json!({"editor":"<p style='text-align:center;color:#888'>[Archive description]</p>"})),
             widget("divider", json!({"style":"solid"})),
@@ -626,8 +619,7 @@ async fn p83_template_archive() {
                 vec![widget("text-editor", json!({"editor":"<div style='border:1px solid #eee;padding:20px;border-radius:8px'><h3>Post 2</h3><p>Excerpt...</p></div>"}))],
                 vec![widget("text-editor", json!({"editor":"<div style='border:1px solid #eee;padding:20px;border-radius:8px'><h3>Post 3</h3><p>Excerpt...</p></div>"}))],
             ]),
-        ]),
-    ]);
+        ])]);
     let body = json!({"title":"E2E: Archive Template","status":"publish","meta":{
         "_elementor_template_type":"archive","_elementor_data":data,"_elementor_edit_mode":"builder"
     }});
@@ -639,15 +631,13 @@ async fn p83_template_archive() {
 async fn p84_template_section_reusable() {
     let wp = require_wp!();
     // Reusable section template — can be inserted into any page
-    let data = to_elementor_data(&vec![
-        container_with(json!({"background_color":"#e94560","padding":{"unit":"px","top":"60","bottom":"60","isLinked":false}}), vec![
+    let data = to_elementor_data(&[container_with(json!({"background_color":"#e94560","padding":{"unit":"px","top":"60","bottom":"60","isLinked":false}}), vec![
             widget("heading", json!({"title":"Ready to Get Started?","header_size":"h2","title_color":"#fff","align":"center"})),
             widget("text-editor", json!({"editor":"<p style='text-align:center;color:#fff;opacity:0.9'>Join thousands of happy customers today.</p>"})),
             container_with(json!({"align_items":"center"}), vec![
                 widget("button", json!({"text":"Start Free Trial","size":"lg","background_color":"#fff","button_text_color":"#e94560"})),
             ]),
-        ]),
-    ]);
+        ])]);
     let body = json!({"title":"E2E: Reusable CTA Section","status":"publish","meta":{
         "_elementor_template_type":"section","_elementor_data":data,"_elementor_edit_mode":"builder"
     }});
@@ -747,7 +737,7 @@ async fn p91_reproduce_with_full_styling() {
             "background_color_b":"#764ba2",
             "padding":{"unit":"px","top":"100","bottom":"100","left":"20","right":"20","isLinked":false}
         }), vec![
-            heading_styled(&raw_elements[0].settings["title"].as_str().unwrap_or("Title"), "h1", "#ffffff", 52),
+            heading_styled(raw_elements[0].settings["title"].as_str().unwrap_or("Title"), "h1", "#ffffff", 52),
             widget("text-editor", json!({"editor":"<p style='text-align:center;color:rgba(255,255,255,0.9);font-size:20px;max-width:600px;margin:auto'>Lightning-fast servers optimized for WordPress. 99.9% uptime guaranteed.</p>"})),
             spacer(20),
             container_with(json!({"align_items":"center"}), vec![
@@ -802,16 +792,14 @@ async fn p91_reproduce_with_full_styling() {
 /// Extract body content from full HTML page, stripping WP chrome.
 fn extract_body_content(html: &str) -> String {
     // Try to find main content area
-    if let Some(start) = html.find("<main") {
-        if let Some(end) = html[start..].find("</main>") {
+    if let Some(start) = html.find("<main")
+        && let Some(end) = html[start..].find("</main>") {
             return html[start..start + end + 7].to_string();
         }
-    }
-    if let Some(start) = html.find("<article") {
-        if let Some(end) = html[start..].find("</article>") {
+    if let Some(start) = html.find("<article")
+        && let Some(end) = html[start..].find("</article>") {
             return html[start..start + end + 10].to_string();
         }
-    }
     // Fallback: return as-is (the converter handles unknown tags)
     html.to_string()
 }

@@ -12,7 +12,7 @@ use super::Tool;
 ///
 /// **Danger:** `$e.run` is an undocumented internal API that may change between Elementor versions.
 ///
-/// Requires an authenticated WordPress session — the CDP browser must already be logged in.
+/// Requires an authenticated `WordPress` session — the CDP browser must already be logged in.
 /// The editor must be opened first (`action: 'open'`) before any other action will work.
 ///
 /// Pages are **not** closed after `open` — the editor tab persists and is reused by subsequent
@@ -30,28 +30,28 @@ async fn active_editor_page() -> Result<Page> {
 
 fn js_select_widget(element_id: &str) -> String {
     format!(
-        r#"(()=>{{const container=elementor.getContainer('{element_id}');if(!container)return 'not_found';$e.run('panel/editor/open',{{model:container.model,view:container.view}});return 'selected'}})()"#
+        r"(()=>{{const container=elementor.getContainer('{element_id}');if(!container)return 'not_found';$e.run('panel/editor/open',{{model:container.model,view:container.view}});return 'selected'}})()"
     )
 }
 
 fn js_set_setting(element_id: &str, key: &str, val_js: &str) -> String {
     format!(
-        r#"(()=>{{const container=elementor.getContainer('{element_id}');if(!container)return 'not_found';$e.run('document/elements/settings',{{container,settings:{{'{key}':{val_js}}}}});return 'ok'}})()"#
+        r"(()=>{{const container=elementor.getContainer('{element_id}');if(!container)return 'not_found';$e.run('document/elements/settings',{{container,settings:{{'{key}':{val_js}}}}});return 'ok'}})()"
     )
 }
 
 fn js_get_preview_box(selector: &str) -> String {
     format!(
-        r#"(()=>{{const iframe=document.querySelector('#elementor-preview-iframe');if(!iframe)return JSON.stringify({{error:'no preview iframe'}});const doc=iframe.contentDocument;const el=doc.querySelector('{selector}');if(!el)return JSON.stringify({{error:'not found'}});const b=el.getBoundingClientRect();const s=iframe.contentWindow.getComputedStyle(el);return JSON.stringify({{box:{{x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}},styles:{{'background-color':s.backgroundColor,color:s.color,'font-size':s.fontSize,padding:s.padding,margin:s.margin}},text:el.textContent?.trim()?.substring(0,200)||''}})}})()"#
+        r"(()=>{{const iframe=document.querySelector('#elementor-preview-iframe');if(!iframe)return JSON.stringify({{error:'no preview iframe'}});const doc=iframe.contentDocument;const el=doc.querySelector('{selector}');if(!el)return JSON.stringify({{error:'not found'}});const b=el.getBoundingClientRect();const s=iframe.contentWindow.getComputedStyle(el);return JSON.stringify({{box:{{x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}},styles:{{'background-color':s.backgroundColor,color:s.color,'font-size':s.fontSize,padding:s.padding,margin:s.margin}},text:el.textContent?.trim()?.substring(0,200)||''}})}})()"
     )
 }
 
-fn js_save_document() -> &'static str {
-    r#"(()=>{$e.run('document/save/default');return 'saving'})()"#
+const fn js_save_document() -> &'static str {
+    r"(()=>{$e.run('document/save/default');return 'saving'})()"
 }
 
-fn js_wait_for_elementor_ready() -> &'static str {
-    r#"new Promise((resolve)=>{const check=()=>{if(window.elementor&&elementor.loaded)resolve('ready');else setTimeout(check,500)};check();setTimeout(()=>resolve('timeout'),30000)})"#
+const fn js_wait_for_elementor_ready() -> &'static str {
+    r"new Promise((resolve)=>{const check=()=>{if(window.elementor&&elementor.loaded)resolve('ready');else setTimeout(check,500)};check();setTimeout(()=>resolve('timeout'),30000)})"
 }
 
 #[async_trait]
