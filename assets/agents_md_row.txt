@@ -1,0 +1,1 @@
+| `wordpress` | `ctrl+shift+w` | auto | WordPress & Elementor — 71 MCP tools for site management, content, page building, visual design, REST API |

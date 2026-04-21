@@ -18,6 +18,7 @@ pub mod clone;
 pub mod bridge;
 pub mod setup_wizard;
 pub mod ensure_site;
+pub mod install_config;
 pub mod site;
 pub mod wp_api;
 pub mod media;
@@ -85,6 +86,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(option::SetWpOption),
         Box::new(setup_wizard::SetupWizard),
         Box::new(ensure_site::EnsureSite),
+        Box::new(install_config::InstallConfig),
         // Site management
         Box::new(site::ListSites),
         Box::new(site::ConnectSite),

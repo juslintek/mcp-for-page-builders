@@ -1,0 +1,60 @@
+{
+  "name": "wordpress",
+  "description": "WordPress & Elementor specialist — 71 MCP tools for site management, content CRUD, page building, visual design, REST API, media upload, and multi-site operations",
+  "prompt": "file://./prompts/wordpress.md",
+  "tools": [
+    "read",
+    "write",
+    "shell",
+    "grep",
+    "glob",
+    "mcp-for-page-builders"
+  ],
+  "includeMcpJson": true,
+  "resources": [
+    "file://~/.kiro/steering/*.md",
+    "skill://~/.kiro/skills/mcp-for-page-builders/SKILL.md",
+    {
+      "type": "knowledgeBase",
+      "source": "file://~/.kiro/skills/mcp-for-page-builders",
+      "name": "WordPressMCP",
+      "description": "mcp-for-page-builders: 71 tools for WordPress multi-site management, full REST API, Elementor page building, visual comparison, media upload",
+      "indexType": "best",
+      "autoUpdate": false
+    }
+  ],
+  "keyboardShortcut": "ctrl+shift+w",
+  "welcomeMessage": "WordPress agent ready. I have 71 MCP tools for site management, content, Elementor page building, visual design, and REST API operations. What would you like to do?",
+  "model": "auto",
+  "allowedTools": [
+    "read",
+    "write",
+    "shell",
+    "grep",
+    "glob"
+  ],
+  "toolsSettings": {
+    "write": {
+      "allowedPaths": [
+        "~/**"
+      ]
+    }
+  },
+  "hooks": {
+    "agentSpawn": [
+      {
+        "command": "python3 ~/.kiro/bin/metrics-collector.py --event spawn 2>/dev/null; exit 0"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "python3 ~/.kiro/bin/metrics-collector.py --event tool 2>/dev/null; exit 0"
+      }
+    ],
+    "stop": [
+      {
+        "command": "python3 ~/.kiro/bin/dashboard.py --session current 2>/dev/null; exit 0"
+      }
+    ]
+  }
+}
