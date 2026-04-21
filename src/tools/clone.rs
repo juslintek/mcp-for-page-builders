@@ -24,14 +24,16 @@ impl Tool for CloneElement {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "clone_element",
-            description: "Clone a live DOM element as Elementor JSON. Inspects the element via CDP, maps CSS to Elementor settings, and assembles a container hierarchy ready for create_page or update_element.",
+            description: "Clone a live DOM element as Elementor JSON. Inspects via CDP, maps HTML tags to widget types, converts CSS to Elementor settings.\n\nWorkflow: Use to replicate external designs into Elementor. Output is ready for create_page or add_element. For style-only matching (keeping existing structure), use match_styles instead.",
             input_schema: json!({
                 "type": "object",
                 "required": ["url", "selector"],
                 "properties": {
                     "url": { "type": "string" },
                     "selector": { "type": "string" },
-                    "max_depth": { "type": "integer", "default": 3 }
+                    "max_depth": { "type": "integer", "default": 3 },
+                    "pre_js": { "type": "string", "description": "JavaScript to execute before cloning (e.g. expand a section)" },
+                    "wait_ms": { "type": "integer", "default": 0, "description": "Milliseconds to wait after pre_js" }
                 }
             }),
         }
@@ -43,7 +45,10 @@ impl Tool for CloneElement {
         let max_depth = args.get("max_depth").and_then(serde_json::Value::as_u64).unwrap_or(3);
 
         let js = build_dom_inspect_js(selector, max_depth);
-        let page = cdp::open_page(url, 1440, 900).await?;
+        let (page, _warning) = cdp::open_page_with_js(url, 1440, 900,
+            args["pre_js"].as_str(),
+            args.get("wait_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+        ).await?;
         let result: String = page.evaluate(js).await.context("CDP evaluate failed")?.into_value()?;
         let dom: Value = serde_json::from_str(&result)?;
         if let Some(err) = dom.get("error") {

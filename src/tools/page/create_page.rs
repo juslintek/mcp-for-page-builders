@@ -15,7 +15,7 @@ impl Tool for CreatePage {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "create_page",
-            description: "Create a new WordPress page with Elementor data. Returns the new page ID.",
+            description: "Create a new WordPress page with Elementor data. Returns the new page ID.\n\nWorkflow: Pass elementor_data as a JSON array string. Use clone_element output or build manually. Follow with screenshot_page to verify.",
             input_schema: json!({
                 "type": "object",
                 "required": ["title", "elementor_data"],

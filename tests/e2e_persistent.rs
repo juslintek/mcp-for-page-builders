@@ -6,8 +6,8 @@
 
 mod helpers;
 
-use elementor_mcp::elementor::{self, Element};
-use elementor_mcp::wp::WpClient;
+use mcp_for_page_builders::elementor::{self, Element};
+use mcp_for_page_builders::wp::WpClient;
 use helpers::*;
 use serde_json::json;
 
@@ -520,10 +520,10 @@ async fn p60_element_operations_demo() {
 async fn p70_seed_content() {
     let wp = require_wp!();
     // Call seed via the tool's underlying logic
-    use elementor_mcp::tools::Tool;
-    let tool = elementor_mcp::tools::seed::SeedContent;
+    use mcp_for_page_builders::tools::Tool;
+    let tool = mcp_for_page_builders::tools::seed::SeedContent;
     let result = tool.run(json!({"prefix": "E2E Seed"}), &wp).await.unwrap();
-    println!("  {}", result.content[0].text);
+    println!("  {}", match &result.content[0] { mcp_for_page_builders::types::tool_result::ToolContent::Text { text } => text.as_str(), _ => "" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

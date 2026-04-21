@@ -3,8 +3,8 @@
 
 mod helpers;
 
-use elementor_mcp::elementor::{self, Element};
-use elementor_mcp::wp::WpClient;
+use mcp_for_page_builders::elementor::{self, Element};
+use mcp_for_page_builders::wp::WpClient;
 use helpers::*;
 use serde_json::json;
 

@@ -16,6 +16,11 @@ pub mod css_map;
 pub mod editor;
 pub mod clone;
 pub mod bridge;
+pub mod setup_wizard;
+pub mod ensure_site;
+pub mod site;
+pub mod wp_api;
+pub mod media;
 
 pub use crate::types::Tool;
 
@@ -59,6 +64,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(visual::VisualCompare),
         Box::new(visual::ExtractStyles),
         Box::new(visual::VisualDiff),
+        Box::new(visual::MatchStyles),
         Box::new(inspect::InspectPage),
         Box::new(css_map::CssToElementor),
         Box::new(editor::ElementorEditor),
@@ -77,5 +83,22 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(template::DeleteTemplate),
         Box::new(option::GetWpOption),
         Box::new(option::SetWpOption),
+        Box::new(setup_wizard::SetupWizard),
+        Box::new(ensure_site::EnsureSite),
+        // Site management
+        Box::new(site::ListSites),
+        Box::new(site::ConnectSite),
+        Box::new(site::DisconnectSite),
+        Box::new(site::SwitchSite),
+        // WP REST API
+        Box::new(wp_api::WpApi),
+        Box::new(wp_api::ListUsers),
+        Box::new(wp_api::ListComments),
+        Box::new(wp_api::ListCategories),
+        Box::new(wp_api::ListTags),
+        Box::new(wp_api::ListMedia),
+        Box::new(wp_api::WpSearch),
+        // Media
+        Box::new(media::UploadMedia),
     ]
 }

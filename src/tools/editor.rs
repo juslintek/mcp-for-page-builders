@@ -59,7 +59,7 @@ impl Tool for ElementorEditor {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "elementor_editor",
-            description: "Control the Elementor editor via CDP — open editor, select widgets, change settings, read preview, save. Sub-second iteration loop.",
+            description: "Control the Elementor editor via CDP — open editor, select widgets, change settings, read preview, save. Sub-second iteration loop.\n\nWorkflow: Call 'open' first, then chain select_widget → set_setting → save. Use get_preview_box to read live preview state. Requires authenticated WordPress session.",
             input_schema: json!({
                 "type": "object",
                 "required": ["action"],

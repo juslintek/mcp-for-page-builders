@@ -1,5 +1,5 @@
 [package]
-name = "elementor-mcp"
+name = "mcp-for-page-builders"
 version = "0.2.0"
 edition = "2024"
 description = "High-performance MCP server for WordPress Elementor — page CRUD, element operations, global design tokens, visual comparison, CDP-based DOM inspection"
@@ -10,7 +10,7 @@ repository = "https://github.com/juslintek/mcp-for-page-builders"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "fs", "process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
 base64 = "0.22"
 rand = "0.9"
 anyhow = "1"
@@ -19,6 +19,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chromiumoxide = "0.9"
 futures = "0.3"
+rcgen = "0.14"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
 
 [lints.rust]
 unsafe_code = "forbid"

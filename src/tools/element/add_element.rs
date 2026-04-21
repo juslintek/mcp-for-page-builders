@@ -15,7 +15,7 @@ impl Tool for AddElement {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "add_element",
-            description: "Insert a new element (widget/container) into a page at a specific position. Provide the element as JSON.",
+            description: "Insert a new element (widget/container) into a page at a specific position. ID auto-generated if missing.\n\nWorkflow: Use clone_element output or manually constructed JSON. Call get_element_tree first to find the right parent_id and position.",
             input_schema: json!({
                 "type": "object",
                 "required": ["page_id", "element"],

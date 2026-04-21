@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::args::str_arg;
+use crate::args::{str_arg, u64_arg};
 use crate::cdp;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
@@ -25,8 +25,14 @@ impl Tool for ExtractStyles {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "extract_styles",
-            description: "Extract computed CSS properties from a live page element using headless Chrome.",
-            input_schema: json!({"type":"object","required":["url","selector"],"properties":{"url":{"type":"string"},"selector":{"type":"string"},"properties":{"type":"array","items":{"type":"string"}}}}),
+            description: "Extract computed CSS properties from a live page element via headless Chrome.\n\nWorkflow: Use to capture styles from a reference page. Follow with css_to_elementor to convert to Elementor settings, then update_element to apply. Or use match_styles to do all three in one call.",
+            input_schema: json!({"type":"object","required":["url","selector"],"properties":{
+                "url":{"type":"string"},
+                "selector":{"type":"string"},
+                "properties":{"type":"array","items":{"type":"string"}},
+                "pre_js":{"type":"string","description":"JavaScript to execute before extracting styles"},
+                "wait_ms":{"type":"integer","default":0,"description":"Milliseconds to wait after pre_js"}
+            }}),
         }
     }
 
@@ -46,13 +52,15 @@ impl Tool for ExtractStyles {
             r"(()=>{{const el=document.querySelector('{selector}');if(!el)return JSON.stringify({{error:'Element not found: {selector}'}});const s=getComputedStyle(el);const r={{}};[{props_js}].forEach(p=>r[p]=s.getPropertyValue(p));const b=el.getBoundingClientRect();r._rect={{x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}};r._tag=el.tagName;r._classes=el.className?.substring?.(0,200)||'';r._childCount=el.children.length;return JSON.stringify(r)}})()"
         );
 
-        let page = cdp::open_page(&url, 1440, 900).await?;
+        let (page, warning) = cdp::open_page_with_js(&url, 1440, 900, str_arg(&args, "pre_js").as_deref(), u64_arg(&args, "wait_ms").unwrap_or(0)).await?;
         let result: String = page.evaluate(js).await.context("CDP evaluate failed")?.into_value().context("Failed to get JS result")?;
 
         let val: Value = serde_json::from_str(&result).context("Failed to parse styles JSON")?;
         if let Some(err) = val.get("error") {
             anyhow::bail!("Style extraction failed: {}", err.as_str().unwrap_or("unknown"));
         }
-        Ok(ToolResult::text(serde_json::to_string_pretty(&val)?))
+        let mut text = serde_json::to_string_pretty(&val)?;
+        if let Some(w) = warning { text.push_str(&format!("\n⚠ {w}")); }
+        Ok(ToolResult::text(text))
     }
 }

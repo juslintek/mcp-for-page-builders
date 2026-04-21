@@ -41,23 +41,35 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Try env vars first, then saved config
-    let (url, user, pass) = if let Ok(url) = std::env::var("WP_URL") { (
-        url,
-        env_or("WP_APP_USER", "admin"),
-        std::env::var("WP_APP_PASSWORD").unwrap_or_default(),
-    ) } else {
-        // Try loading from saved config
-        eprintln!("No WP_URL set. Set WP_URL, WP_APP_USER, WP_APP_PASSWORD env vars.");
-        eprintln!("Or run: elementor-mcp setup <wordpress-url>");
-        std::process::exit(1);
+    // Load site store
+    let mut site_store = crate::wp::SiteStore::load();
+
+    // If WP_URL env var is set, add that site to store
+    if let Ok(url) = std::env::var("WP_URL") {
+        let user = env_or("WP_APP_USER", "admin");
+        let pass = std::env::var("WP_APP_PASSWORD").unwrap_or_default();
+        let url = url.trim_end_matches('/').to_string();
+        site_store.add_site(crate::wp::SiteCredentials { url: url.clone(), user, app_password: pass });
+        site_store.active = Some(url);
+    }
+
+    let store = std::sync::Arc::new(tokio::sync::RwLock::new(site_store));
+
+    let wp = {
+        let s = store.read().await;
+        if let Some(creds) = s.get_active() {
+            WpClient::from_creds(creds).with_store(store.clone())
+        } else {
+            eprintln!("No WP_URL set — starting in CDP-only mode. WordPress tools will prompt for setup.");
+            WpClient::unconfigured().with_store(store.clone())
+        }
     };
 
-    let wp = WpClient::new(&url, &user, &pass);
     let tools = tools::all_tools();
     let mut stdio = Stdio::new();
+    let mode = if wp.is_configured() { wp.base_url().to_string() } else { "CDP-only (no WordPress)".into() };
 
-    info!("elementor-mcp started ({} tools) → {}", tools.len(), url);
+    info!("elementor-mcp started ({} tools) → {}", tools.len(), mode);
 
     loop {
         let Some(req) = stdio.read_request().await? else {

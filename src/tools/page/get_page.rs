@@ -14,7 +14,7 @@ impl Tool for GetPage {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "get_page",
-            description: "Get a WordPress page by ID including its Elementor data.",
+            description: "Get a WordPress page by ID including its Elementor data.\n\nWorkflow: Use to read current page state. The _elementor_data field contains the element tree as a JSON string.",
             input_schema: json!({
                 "type": "object",
                 "required": ["id"],

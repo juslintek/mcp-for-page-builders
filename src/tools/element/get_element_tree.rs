@@ -15,7 +15,7 @@ impl Tool for GetElementTree {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "get_element_tree",
-            description: "Get a flattened view of a page's element tree showing paths, types, and IDs.",
+            description: "Get a flattened view of a page's element tree showing paths, types, and IDs.\n\nWorkflow: Call first to discover element IDs before get_element, update_element, or match_styles.",
             input_schema: json!({
                 "type": "object",
                 "required": ["page_id"],

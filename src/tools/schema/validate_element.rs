@@ -14,7 +14,7 @@ impl Tool for ValidateElement {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "validate_element",
-            description: "Validate an element's JSON against its widget schema. Reports invalid settings with 'did you mean?' suggestions.",
+            description: "Validate an element's JSON against its widget schema. Reports invalid settings with 'did you mean?' suggestions.\n\nWorkflow: Use before add_element or update_element to catch setting key mistakes early.",
             input_schema: json!({"type":"object","required":["element"],"properties":{"element":{"type":"object","description":"Full element JSON to validate"}}}),
         }
     }

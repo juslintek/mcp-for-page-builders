@@ -17,7 +17,7 @@ impl Tool for GetWidgetSchema {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "get_widget_schema",
-            description: "Get the full schema for a widget type — all valid settings, common mistakes, and their corrections.",
+            description: "Get the full schema for a widget type — all valid settings, common mistakes, and their corrections.\n\nWorkflow: Check before update_element to know which setting keys are valid. Prevents trial-and-error.",
             input_schema: json!({"type":"object","required":["widget_type"],"properties":{"widget_type":{"type":"string","description":"e.g. 'heading', 'text-editor', 'button'"}}}),
         }
     }

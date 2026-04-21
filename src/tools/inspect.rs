@@ -24,7 +24,7 @@ impl Tool for InspectPage {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "inspect_page",
-            description: "Inspect a DOM element via CDP — returns bounding box, computed styles, and children tree. Structured data, no screenshot needed.",
+            description: "Inspect a DOM element via CDP — returns bounding box, computed styles, and children tree. Structured data, no screenshot needed.\n\nWorkflow: Use to understand page structure before extract_styles or visual_diff. Helps identify the right CSS selectors for other tools.",
             input_schema: json!({
                 "type": "object",
                 "required": ["url", "selector"],
@@ -32,7 +32,9 @@ impl Tool for InspectPage {
                     "url": { "type": "string" },
                     "selector": { "type": "string", "description": "CSS selector, e.g. 'header', '.site-header'" },
                     "max_depth": { "type": "integer", "default": 3, "description": "Max recursion depth for children" },
-                    "properties": { "type": "array", "items": {"type": "string"}, "description": "CSS properties to extract (defaults to comprehensive set)" }
+                    "properties": { "type": "array", "items": {"type": "string"}, "description": "CSS properties to extract (defaults to comprehensive set)" },
+                    "pre_js": { "type": "string", "description": "JavaScript to execute before inspecting (e.g. expand a menu)" },
+                    "wait_ms": { "type": "integer", "default": 0, "description": "Milliseconds to wait after pre_js" }
                 }
             }),
         }
@@ -56,7 +58,10 @@ impl Tool for InspectPage {
 
         let js = build_inspect_js(selector, &props_js, max_depth);
 
-        let page = cdp::open_page(url, 1440, 900).await?;
+        let (page, warning) = cdp::open_page_with_js(url, 1440, 900,
+            args["pre_js"].as_str(),
+            args.get("wait_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+        ).await?;
         let result: String = page.evaluate(js).await
             .context("CDP evaluate failed")?
             .into_value()
@@ -66,7 +71,9 @@ impl Tool for InspectPage {
         if let Some(err) = val.get("error") {
             anyhow::bail!("{}", err.as_str().unwrap_or("unknown error"));
         }
-        Ok(ToolResult::text(serde_json::to_string_pretty(&val)?))
+        let mut text = serde_json::to_string_pretty(&val)?;
+        if let Some(w) = warning { text.push_str(&format!("\n⚠ {w}")); }
+        Ok(ToolResult::text(text))
     }
 }
 

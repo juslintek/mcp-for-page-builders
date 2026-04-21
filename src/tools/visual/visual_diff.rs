@@ -10,25 +10,52 @@ use crate::tools::Tool;
 
 pub struct VisualDiff;
 
+/// JS that discovers top-level semantic selectors from a page.
+const DISCOVER_SELECTORS_JS: &str = r"(()=>{const sels=new Set();const semantic=['header','nav','main','footer','section','article','aside','h1','h2'];semantic.forEach(t=>{if(document.querySelector(t))sels.add(t)});document.querySelectorAll('[class*=hero],[class*=header],[class*=footer],[class*=banner],[class*=nav]').forEach(el=>{if(el.id)sels.add('#'+el.id);else if(el.className){const c=el.className.split(/\s+/).find(c=>/hero|header|footer|banner|nav/.test(c));if(c)sels.add('.'+c)}});for(const c of document.body.children){if(c.id)sels.add('#'+c.id);else if(c.className&&c.className.split){const cls=c.className.split(/\s+/)[0];if(cls)sels.add('.'+cls)}}return JSON.stringify([...sels])})()";
+
 #[async_trait]
 impl Tool for VisualDiff {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "visual_diff",
-            description: "Compare two pages element-by-element via CDP and return structured, actionable differences (not pixel diff).",
-            input_schema: json!({"type":"object","required":["url_a","url_b","selectors"],"properties":{"url_a":{"type":"string"},"url_b":{"type":"string"},"selectors":{"type":"array","items":{"type":"string"}}}}),
+            description: "Compare two pages element-by-element via CDP. Returns structured differences with match score.\n\nWorkflow: Use after making changes to verify visual parity. Omit selectors for auto-discovery of page sections. Use after match_styles or update_element to verify results.",
+            input_schema: json!({"type":"object","required":["url_a","url_b"],"properties":{
+                "url_a":{"type":"string"},
+                "url_b":{"type":"string"},
+                "selectors":{"type":"array","items":{"type":"string"},"description":"CSS selectors to compare. Omit for auto-discovery of page sections."},
+                "pre_js_a":{"type":"string","description":"JavaScript to execute on page A before comparison"},
+                "pre_js_b":{"type":"string","description":"JavaScript to execute on page B before comparison"},
+                "wait_ms":{"type":"integer","default":0,"description":"Milliseconds to wait after pre_js"}
+            }}),
         }
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let url_a = str_arg(&args, "url_a").ok_or_else(|| anyhow::anyhow!("url_a required"))?;
         let url_b = str_arg(&args, "url_b").ok_or_else(|| anyhow::anyhow!("url_b required"))?;
-        let selectors: Vec<String> = args.get("selectors")
+        let mut selectors: Vec<String> = args.get("selectors")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default();
 
-        if selectors.is_empty() { anyhow::bail!("selectors array required"); }
+        let pre_js_a = str_arg(&args, "pre_js_a");
+        let pre_js_b = str_arg(&args, "pre_js_b");
+        let wait_ms = args.get("wait_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        let (page_a, warn_a) = cdp::open_page_with_js(&url_a, 1440, 900, pre_js_a.as_deref(), wait_ms).await?;
+        let (page_b, warn_b) = cdp::open_page_with_js(&url_b, 1440, 900, pre_js_b.as_deref(), wait_ms).await?;
+
+        // Auto-discover selectors if none provided
+        if selectors.is_empty() {
+            let sels_a: String = page_a.evaluate(DISCOVER_SELECTORS_JS).await?.into_value()?;
+            let sels_b: String = page_b.evaluate(DISCOVER_SELECTORS_JS).await?.into_value()?;
+            let mut all: Vec<String> = serde_json::from_str::<Vec<String>>(&sels_a)?;
+            let extra: Vec<String> = serde_json::from_str(&sels_b)?;
+            for s in extra { if !all.contains(&s) { all.push(s); } }
+            selectors = all;
+        }
+
+        if selectors.is_empty() { anyhow::bail!("No selectors found on either page"); }
 
         let build_js = |sels: &[String]| -> String {
             let sels_js = sels.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
@@ -36,11 +63,9 @@ impl Tool for VisualDiff {
 ")
         };
 
-        let page_a = cdp::open_page(&url_a, 1440, 900).await?;
         let result_a: String = page_a.evaluate(build_js(&selectors)).await?.into_value()?;
         let data_a: Value = serde_json::from_str(&result_a)?;
 
-        let page_b = cdp::open_page(&url_b, 1440, 900).await?;
         let result_b: String = page_b.evaluate(build_js(&selectors)).await?.into_value()?;
         let data_b: Value = serde_json::from_str(&result_b)?;
 
@@ -88,7 +113,9 @@ impl Tool for VisualDiff {
         }
 
         let score = if total > 0 { #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] { (f64::from(matched) / f64::from(total) * 100.0) as u32 } } else { 100 };
-        let output = json!({"match_score": score, "total_checks": total, "differences": diffs});
+        let mut output = json!({"match_score": score, "total_checks": total, "selectors_used": selectors, "differences": diffs});
+        if let Some(w) = warn_a { output["warning_a"] = json!(w); }
+        if let Some(w) = warn_b { output["warning_b"] = json!(w); }
         Ok(ToolResult::text(serde_json::to_string_pretty(&output)?))
     }
 }

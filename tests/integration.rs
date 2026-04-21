@@ -1,8 +1,8 @@
 //! Integration tests — cover ALL 41 MCP tools against live `WordPress`.
 //! Run: `WP_TEST_URL=http://localhost:8080` `WP_TEST_USER=admin` `WP_TEST_PASS=xxx` cargo test --test integration
 
-use elementor_mcp::elementor::{self, Element};
-use elementor_mcp::wp::WpClient;
+use mcp_for_page_builders::elementor::{self, Element};
+use mcp_for_page_builders::wp::WpClient;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -425,9 +425,9 @@ async fn tool_get_experiments() {
 #[tokio::test]
 async fn tool_screenshot_no_chrome() {
     // Visual tools should return an error message, not panic, when Chrome is missing
-    use elementor_mcp::tools::Tool;
+    use mcp_for_page_builders::tools::Tool;
     let wp = require_wp!();
-    let tool = elementor_mcp::tools::visual::Screenshot;
+    let tool = mcp_for_page_builders::tools::visual::Screenshot;
     let result = tool.run(json!({"url": "http://localhost:18095/"}), &wp).await;
     // Either succeeds (Chrome found) or returns error (Chrome not found) — both OK
     assert!(result.is_ok());
@@ -435,18 +435,18 @@ async fn tool_screenshot_no_chrome() {
 
 #[tokio::test]
 async fn tool_screenshot_page_no_chrome() {
-    use elementor_mcp::tools::Tool;
+    use mcp_for_page_builders::tools::Tool;
     let wp = require_wp!();
-    let tool = elementor_mcp::tools::visual::ScreenshotPage;
+    let tool = mcp_for_page_builders::tools::visual::ScreenshotPage;
     let result = tool.run(json!({"page_id": 2}), &wp).await;
     assert!(result.is_ok()); // error is in ToolResult, not Err
 }
 
 #[tokio::test]
 async fn tool_visual_compare_no_chrome() {
-    use elementor_mcp::tools::Tool;
+    use mcp_for_page_builders::tools::Tool;
     let wp = require_wp!();
-    let tool = elementor_mcp::tools::visual::VisualCompare;
+    let tool = mcp_for_page_builders::tools::visual::VisualCompare;
     let result = tool.run(json!({"url_a": "http://localhost:18095/", "url_b": "http://localhost:18095/"}), &wp).await;
     assert!(result.is_ok());
 }
@@ -458,7 +458,7 @@ async fn tool_visual_compare_no_chrome() {
 #[tokio::test]
 async fn tool_validate_element_integration() {
     // This runs without WP — just verifies the schema logic works
-    use elementor_mcp::tools::schema::{build_schema_map, all_valid_keys, suggest_fix};
+    use mcp_for_page_builders::tools::schema::{build_schema_map, all_valid_keys, suggest_fix};
     let map = build_schema_map();
     let heading = map.get("heading").unwrap();
     let keys = all_valid_keys(heading);

@@ -1,4 +1,4 @@
-use elementor_mcp::elementor::*;
+use mcp_for_page_builders::elementor::*;
 use serde_json::json;
 
 fn make_widget(id: &str, widget_type: &str) -> Element {

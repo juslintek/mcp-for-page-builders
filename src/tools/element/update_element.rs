@@ -15,7 +15,7 @@ impl Tool for UpdateElement {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "update_element",
-            description: "Update an element's settings by ID. Merges provided settings with existing ones (partial update).",
+            description: "Update an element's settings by ID. Merges provided settings with existing ones (partial update). Only the keys you provide are changed.\n\nWorkflow: Use css_to_elementor output as the settings input. Verify changes with screenshot_page or visual_diff afterward.",
             input_schema: json!({
                 "type": "object",
                 "required": ["page_id", "element_id", "settings"],

@@ -1,6 +1,6 @@
 //! Builder helpers for constructing Elementor JSON in tests.
 
-use elementor_mcp::elementor::{Element, generate_id};
+use mcp_for_page_builders::elementor::{Element, generate_id};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
