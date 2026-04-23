@@ -384,7 +384,7 @@ fn http_response(status: &str, content_type: &str, body: &str) -> String {
 fn page_form(tunnel_url: &str, preset: Option<&str>) -> String {
     let val = preset.unwrap_or("");
     http_response("200 OK", "text/html", &format!(r#"<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Elementor MCP — Connect</title>
+<html><head><meta charset="utf-8"><title>MCP for Page Builders — Connect</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:system-ui,sans-serif;background:#0f0f23;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}}
@@ -401,7 +401,7 @@ button:hover{{background:#c73e54}}
 <div class="card">
 <div class="logo">🔌</div>
 <h1>Connect WordPress</h1>
-<p>Enter your WordPress site URL to authorize Elementor MCP access.</p>
+<p>Enter your WordPress site URL to authorize MCP for Page Builders access.</p>
 <form method="POST" action="{tunnel_url}/connect">
 <label for="wp_url">WordPress URL</label>
 <input type="url" name="wp_url" id="wp_url" value="{val}" placeholder="https://my-site.com" required>

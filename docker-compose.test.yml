@@ -7,7 +7,7 @@ services:
       WP_ADMIN_USER: "${WP_ADMIN_USER:-admin}"
       WP_ADMIN_PASS: "${WP_ADMIN_PASS:-admin}"
       WP_ADMIN_EMAIL: "${WP_ADMIN_EMAIL:-admin@test.local}"
-      WP_TITLE: "${WP_TITLE:-Elementor MCP Test}"
+      WP_TITLE: "${WP_TITLE:-MCP for Page Builders Test}"
       WP_DEBUG: "${WP_DEBUG:-false}"
     volumes:
       - "${WP_DATABASE_DIR:-wp_database}:/wp/wp-content/database"

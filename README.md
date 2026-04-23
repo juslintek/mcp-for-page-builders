@@ -280,8 +280,8 @@ Some tools require a small companion WordPress plugin: **MCP Bridge for Page Bui
 
 The plugin exposes additional REST endpoints that WordPress's built-in API doesn't provide:
 
-- `elementor-mcp/v1/status` — health check and version probe used by `install_bridge`
-- `elementor-mcp/v1/option` — read/write arbitrary WordPress options (used by `get_wp_option`, `set_wp_option`, and as a fallback deployment channel for mu-plugin snippets)
+- `mcp-for-page-builders/v1/status` — health check and version probe used by `install_bridge`
+- `mcp-for-page-builders/v1/option` — read/write arbitrary WordPress options (used by `get_wp_option`, `set_wp_option`, and as a fallback deployment channel for mu-plugin snippets)
 
 Without the bridge, `get_wp_option` and `set_wp_option` fall back to the standard `wp/v2/settings` endpoint, which only exposes a small allowlisted subset of options. The bridge removes that restriction, giving the MCP server full access to any option — including Elementor's internal configuration, Theme Builder conditions, and third-party plugin settings.
 

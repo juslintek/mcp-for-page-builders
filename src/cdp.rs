@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 static CDP: RwLock<Option<Arc<Browser>>> = RwLock::const_new(None);
 
 async fn launch_browser() -> Result<Arc<Browser>> {
-    let user_data_dir = std::env::temp_dir().join("elementor-mcp-cdp");
+    let user_data_dir = std::env::temp_dir().join("mcp-for-page-builders-cdp");
     let _ = std::fs::create_dir_all(&user_data_dir);
 
     // Kill any orphaned Chrome using our data dir, then clean stale lock

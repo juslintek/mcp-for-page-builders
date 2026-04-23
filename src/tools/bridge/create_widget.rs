@@ -39,7 +39,7 @@ impl Tool for CreateWidget {
         let class_name = to_class_name(name);
         let php = generate_widget_php(name, label, icon, category, &class_name, controls, render_html);
 
-        if wp.post("elementor-mcp/v1/write-mu-plugin", &json!({"filename": format!("emcp-widget-{name}"), "php_code": php})).await.is_ok() {
+        if wp.post("mcp-for-page-builders/v1/write-mu-plugin", &json!({"filename": format!("emcp-widget-{name}"), "php_code": php})).await.is_ok() {
             return Ok(ToolResult::text(format!("Widget '{label}' deployed to mu-plugins/emcp-widget-{name}.php\nRefresh the Elementor editor to see it.")));
         }
 

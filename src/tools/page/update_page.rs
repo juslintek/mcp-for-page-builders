@@ -41,8 +41,10 @@ impl Tool for UpdatePage {
             body["meta"] = json!({ "_elementor_data": data });
         }
 
+        let jid = wp.session.as_ref().map(|s| s.record("update_page", wp.base_url(), &format!("page:{id}")));
         wp.post(&format!("wp/v2/pages/{id}"), &body).await?;
         ElementorService::new(wp).clear_cache().await?;
+        if let (Some(s), Some(jid)) = (&wp.session, jid) { s.complete(&jid); }
 
         Ok(ToolResult::text(format!("Updated page {id} and cleared Elementor CSS cache.")))
     }

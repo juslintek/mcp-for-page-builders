@@ -34,7 +34,7 @@ Open http://localhost:8080 — WordPress is ready with Elementor active.
 | `WP_ADMIN_USER` | *(none)* | Set to enable auto-setup. Omit for manual web install. |
 | `WP_ADMIN_PASS` | `admin` | Admin password |
 | `WP_ADMIN_EMAIL` | `admin@localhost` | Admin email |
-| `WP_TITLE` | `Elementor MCP` | Site title |
+| `WP_TITLE` | `MCP for Page Builders` | Site title |
 | `WP_DEBUG` | `false` | Enable WordPress debug mode |
 
 ### Auto-setup vs Manual
@@ -126,7 +126,7 @@ FrankenPHP (Caddy + PHP 8.4 ZTS in one process)
     ├── db.php                    SQLite drop-in (auto-created)
     └── mu-plugins/
         ├── elementor-stack.php   Loads Elementor + ProElements from /opt
-        └── elementor-mcp-config.php  REST API meta, app passwords
+        └── mcp-for-page-builders-config.php  REST API meta, app passwords
 
 /opt/elementor-stack/             Baked into image, immune to mounts
 ├── sqlite-database-integration/

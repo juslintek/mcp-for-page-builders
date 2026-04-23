@@ -85,4 +85,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
-      - run: ls -lh target/release/elementor-mcp
+      - run: ls -lh target/release/mcp-for-page-builders

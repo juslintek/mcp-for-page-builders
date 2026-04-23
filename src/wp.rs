@@ -83,6 +83,7 @@ pub struct WpClient {
     auth: String,
     configured: bool,
     store: Option<SharedStore>,
+    pub session: Option<Arc<crate::session::Session>>,
 }
 
 impl WpClient {
@@ -99,11 +100,17 @@ impl WpClient {
             auth,
             configured: true,
             store: None,
+            session: None,
         }
     }
 
     pub fn with_store(mut self, store: SharedStore) -> Self {
         self.store = Some(store);
+        self
+    }
+
+    pub fn with_session(mut self, s: Arc<crate::session::Session>) -> Self {
+        self.session = Some(s);
         self
     }
 
@@ -114,6 +121,7 @@ impl WpClient {
             auth: String::new(),
             configured: false,
             store: None,
+            session: None,
         }
     }
 
@@ -135,7 +143,7 @@ impl WpClient {
             "WordPress not configured. Call the setup_wizard tool to connect:\n\
              • Option A: Provide WP_URL, username, and app password via setup_wizard\n\
              • Option B: Set WP_URL, WP_APP_USER, WP_APP_PASSWORD env vars in your MCP config\n\
-             • Option C: Run `elementor-mcp setup <wordpress-url>` from the command line"
+             • Option C: Run `mcp-for-page-builders setup <wordpress-url>` from the command line"
         )
     }
 

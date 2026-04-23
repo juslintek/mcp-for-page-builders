@@ -376,7 +376,7 @@ async fn p30_landing_page() {
         ]),
         // Hero
         container_with(json!({"background_background":"classic","background_color":"#0f0f23","padding":{"unit":"px","top":"120","bottom":"120","left":"20","right":"20","isLinked":false}}), vec![
-            heading_styled("Build Faster with Elementor MCP", "h1", "#ffffff", 52),
+            heading_styled("Build Faster with MCP for Page Builders", "h1", "#ffffff", 52),
             text("<p style='text-align:center;color:#888;font-size:20px;max-width:600px;margin:auto'>The AI-powered tool that creates WordPress pages programmatically. 41 tools, zero manual work.</p>"),
             spacer(20),
             container_with(json!({"align_items":"center","justify_content":"center","flex_direction":"row","flex_gap":{"unit":"px","size":16}}), vec![
@@ -421,7 +421,7 @@ async fn p30_landing_page() {
             heading_styled("Start Building Today", "h2", "#ffffff", 36),
             text("<p style='text-align:center;color:#fff;opacity:0.9'>docker run -p 8080:8080 juslintek/wp-sqlite-elementor-server:latest</p>"),
             container_with(json!({"align_items":"center"}), vec![
-                button_styled("View on GitHub", "https://github.com/juslintek/elementor-mcp-rs", "#ffffff", "#e94560"),
+                button_styled("View on GitHub", "https://github.com/juslintek/mcp-for-page-builders", "#ffffff", "#e94560"),
             ]),
         ]),
     ]).await;

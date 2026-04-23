@@ -44,7 +44,7 @@ impl<'a> ElementorService<'a> {
 
         let current = self
             .wp
-            .get("elementor-mcp/v1/option/elementor_pro_theme_builder_conditions")
+            .get("mcp-for-page-builders/v1/option/elementor_pro_theme_builder_conditions")
             .await
             .unwrap_or_else(|_| serde_json::json!({}));
 
@@ -60,7 +60,7 @@ impl<'a> ElementorService<'a> {
 
         self.wp
             .post(
-                "elementor-mcp/v1/option/elementor_pro_theme_builder_conditions",
+                "mcp-for-page-builders/v1/option/elementor_pro_theme_builder_conditions",
                 &Value::Object(map),
             )
             .await

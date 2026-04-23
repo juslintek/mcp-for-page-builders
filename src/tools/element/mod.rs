@@ -1,6 +1,7 @@
 mod get_element;
 mod add_element;
 mod update_element;
+mod patch_elements;
 mod remove_element;
 mod move_element;
 mod duplicate_element;
@@ -10,6 +11,7 @@ mod get_element_tree;
 pub use get_element::GetElement;
 pub use add_element::AddElement;
 pub use update_element::UpdateElement;
+pub use patch_elements::PatchElements;
 pub use remove_element::RemoveElement;
 pub use move_element::MoveElement;
 pub use duplicate_element::DuplicateElement;

@@ -5,7 +5,7 @@ use tokio::net::TcpListener;
 
 use crate::util::{config_dir, config_path, urldecode, urlencode, uuid};
 
-const APP_NAME: &str = "elementor-mcp";
+const APP_NAME: &str = "mcp-for-page-builders";
 
 /// Run the auto-auth setup flow.
 pub async fn run(wp_url: &str) -> Result<()> {
@@ -105,7 +105,7 @@ pub async fn run(wp_url: &str) -> Result<()> {
 
     println!("\nCredentials saved to {}", path.display());
     println!("\nUsage:");
-    println!("  WP_URL={wp_url} WP_APP_USER={user} WP_APP_PASSWORD={password} elementor-mcp");
+    println!("  WP_URL={wp_url} WP_APP_USER={user} WP_APP_PASSWORD={password} mcp-for-page-builders");
     println!("\nOr the MCP server will auto-load from {}", path.display());
 
     Ok(())

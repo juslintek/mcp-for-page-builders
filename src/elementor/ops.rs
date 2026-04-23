@@ -119,19 +119,48 @@ pub fn serialize_data(elements: &[Element]) -> anyhow::Result<String> {
 }
 
 pub async fn get_page_elements(wp: &crate::wp::WpClient, page_id: u64) -> anyhow::Result<Vec<Element>> {
-    let page = wp.get(&format!("wp/v2/pages/{page_id}?context=edit")).await?;
-    let raw = page
-        .get("meta")
-        .and_then(|m| m.get("_elementor_data"))
-        .and_then(|d| d.as_str())
-        .ok_or_else(|| anyhow::anyhow!("No _elementor_data on page {page_id}"))?;
-    parse_data(raw)
+    // Try REST API endpoints first
+    let endpoints = [
+        format!("wp/v2/pages/{page_id}?context=edit"),
+        format!("wp/v2/posts/{page_id}?context=edit"),
+        format!("wp/v2/elementor_library/{page_id}?context=edit"),
+        format!("wp/v2/udesign_template/{page_id}?context=edit"),
+    ];
+    for ep in &endpoints {
+        if let Ok(page) = wp.get(ep).await {
+            if let Some(raw) = page.get("meta").and_then(|m| m.get("_elementor_data")).and_then(|d| d.as_str()) {
+                if !raw.is_empty() { return parse_data(raw); }
+            }
+        }
+    }
+    // Fall back to bridge postmeta endpoint
+    let bridge_ep = format!("mcp-for-page-builders/v1/postmeta/{page_id}/_elementor_data");
+    if let Ok(val) = wp.get(&bridge_ep).await {
+        let raw = val.get("value").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("No _elementor_data for post {page_id}"))?;
+        return parse_data(raw);
+    }
+    anyhow::bail!("No _elementor_data found for post {page_id}")
 }
 
 pub async fn set_page_elements(wp: &crate::wp::WpClient, page_id: u64, elements: &[Element]) -> anyhow::Result<()> {
     let data = serialize_data(elements)?;
     let body = serde_json::json!({ "meta": { "_elementor_data": data } });
-    wp.post(&format!("wp/v2/pages/{page_id}"), &body).await?;
+    let endpoints = [
+        format!("wp/v2/pages/{page_id}"),
+        format!("wp/v2/posts/{page_id}"),
+        format!("wp/v2/elementor_library/{page_id}"),
+        format!("wp/v2/udesign_template/{page_id}"),
+    ];
+    for ep in &endpoints {
+        if wp.post(ep, &body).await.is_ok() {
+            let _ = wp.delete("elementor/v1/cache").await;
+            return Ok(());
+        }
+    }
+    // Fall back to bridge postmeta endpoint
+    let bridge_ep = format!("mcp-for-page-builders/v1/postmeta/{page_id}/_elementor_data");
+    wp.post(&bridge_ep, &serde_json::json!({"value": data})).await?;
     let _ = wp.delete("elementor/v1/cache").await;
     Ok(())
 }

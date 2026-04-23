@@ -20,7 +20,7 @@ impl Tool for InstallBridge {
     }
 
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
-        if let Ok(status) = wp.get("elementor-mcp/v1/status").await {
+        if let Ok(status) = wp.get("mcp-for-page-builders/v1/status").await {
             let ver = status["version"].as_str().unwrap_or("unknown");
             return Ok(ToolResult::text(format!("Bridge already installed (v{ver})")));
         }
@@ -50,12 +50,12 @@ Version: 1.0.0
 */
 if (!defined('ABSPATH')) exit;
 add_action('rest_api_init', function() {
-    register_rest_route('elementor-mcp/v1', '/status', [
+    register_rest_route('mcp-for-page-builders/v1', '/status', [
         'methods' => 'GET',
         'callback' => function() { return ['version' => '1.0.0', 'mu_plugins_writable' => wp_is_writable(WPMU_PLUGIN_DIR)]; },
         'permission_callback' => '__return_true',
     ]);
-    register_rest_route('elementor-mcp/v1', '/write-mu-plugin', [
+    register_rest_route('mcp-for-page-builders/v1', '/write-mu-plugin', [
         'methods' => 'POST',
         'callback' => function($req) {
             $name = sanitize_file_name($req['filename']);

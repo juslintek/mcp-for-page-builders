@@ -6,6 +6,7 @@ mod wp;
 mod elementor;
 mod tools;
 mod setup;
+mod session;
 pub mod cdp;
 
 use anyhow::Result;
@@ -27,7 +28,7 @@ async fn main() -> Result<()> {
     // Subcommand: setup
     if args.get(1).map(std::string::String::as_str) == Some("setup") {
         let url = args.get(2).ok_or_else(|| anyhow::anyhow!(
-            "Usage: elementor-mcp setup <wordpress-url>\n  Example: elementor-mcp setup https://my-site.com"
+            "Usage: mcp-for-page-builders setup <wordpress-url>\n  Example: mcp-for-page-builders setup https://my-site.com"
         ))?;
         return setup::run(url).await;
     }
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "elementor_mcp=info".parse().unwrap()),
+                .unwrap_or_else(|_| "mcp_for_page_builders=info".parse().unwrap()),
         )
         .init();
 
@@ -55,21 +56,34 @@ async fn main() -> Result<()> {
 
     let store = std::sync::Arc::new(tokio::sync::RwLock::new(site_store));
 
+    // Acquire session (orphan detection + journal)
+    let session = match session::Session::acquire() {
+        Ok(s) => {
+            let pending = s.pending_ops();
+            if !pending.is_empty() {
+                eprintln!("⚠ {} pending op(s) from previous session — call get_session_state for details", pending.len());
+            }
+            Some(std::sync::Arc::new(s))
+        }
+        Err(e) => { eprintln!("Session acquire failed (non-fatal): {e}"); None }
+    };
+
     let wp = {
         let s = store.read().await;
-        if let Some(creds) = s.get_active() {
+        let client = if let Some(creds) = s.get_active() {
             WpClient::from_creds(creds).with_store(store.clone())
         } else {
             eprintln!("No WP_URL set — starting in CDP-only mode. WordPress tools will prompt for setup.");
             WpClient::unconfigured().with_store(store.clone())
-        }
+        };
+        if let Some(sess) = session { client.with_session(sess) } else { client }
     };
 
     let tools = tools::all_tools();
     let mut stdio = Stdio::new();
     let mode = if wp.is_configured() { wp.base_url().to_string() } else { "CDP-only (no WordPress)".into() };
 
-    info!("elementor-mcp started ({} tools) → {}", tools.len(), mode);
+    info!("mcp-for-page-builders started ({} tools) → {}", tools.len(), mode);
 
     loop {
         let Some(req) = stdio.read_request().await? else {
@@ -94,7 +108,7 @@ async fn handle(
         "initialize" => Response::ok(id, json!({
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": { "listChanged": false } },
-            "serverInfo": { "name": "elementor-mcp", "version": env!("CARGO_PKG_VERSION") }
+            "serverInfo": { "name": "mcp-for-page-builders", "version": env!("CARGO_PKG_VERSION") }
         })),
         "tools/list" => {
             let defs: Vec<_> = tools.iter().map(|t| {

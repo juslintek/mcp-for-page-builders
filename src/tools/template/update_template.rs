@@ -30,7 +30,9 @@ impl Tool for UpdateTemplate {
             anyhow::bail!("Nothing to update — provide title, elementor_data, or conditions");
         }
         if body.as_object().is_some_and(|m| !m.is_empty()) {
+            let jid = wp.session.as_ref().map(|s| s.record("update_template", wp.base_url(), &format!("template:{id}")));
             wp.post(&format!("wp/v2/elementor_library/{id}"), &body).await?;
+            if let (Some(s), Some(jid)) = (&wp.session, jid) { s.complete(&jid); }
         }
         if let Some(conditions) = parse_conditions(&args) {
             let tpl = wp.get(&format!("wp/v2/elementor_library/{id}?context=edit")).await?;

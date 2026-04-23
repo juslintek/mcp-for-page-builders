@@ -34,8 +34,8 @@ Add env vars to your MCP client config (e.g. .kiro/settings/mcp.json):
 
   {
     "mcpServers": {
-      "elementor-mcp": {
-        "command": "/path/to/elementor-mcp",
+      "mcp-for-page-builders": {
+        "command": "/path/to/mcp-for-page-builders",
         "env": {
           "WP_URL": "https://your-site.com",
           "WP_APP_USER": "admin",
@@ -49,7 +49,7 @@ Add env vars to your MCP client config (e.g. .kiro/settings/mcp.json):
 Then restart your chat session to reload the MCP server.
 
 ━━━ Option B: CLI setup ━━━
-Run from terminal:  elementor-mcp setup https://your-site.com
+Run from terminal:  mcp-for-page-builders setup https://your-site.com
 
 ━━━ Option C: Create an Application Password ━━━
 WordPress Admin → Users → Profile → Application Passwords → Add New

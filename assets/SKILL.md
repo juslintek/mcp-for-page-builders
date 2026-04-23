@@ -16,7 +16,7 @@ When the user mentions:
 - Uploading files/media to WordPress
 - WordPress REST API
 - Visual comparison, screenshots, style extraction
-- MCP for page builders, elementor-mcp
+- MCP for page builders
 
 ## Setup
 
@@ -38,7 +38,7 @@ cd mcp-for-page-builders && cargo build --release
 }
 ```
 
-**No credentials needed in config.** The server manages its own credential storage internally at `~/.config/elementor-mcp/sites.json`. Use `connect_site` or `authenticate` tools to add sites at runtime.
+**No credentials needed in config.** The server manages its own credential storage internally at `~/.config/mcp-for-page-builders/sites.json`. Use `connect_site` or `authenticate` tools to add sites at runtime.
 
 **Legacy env-var mode** still works — set `WP_URL`, `WP_APP_USER`, `WP_APP_PASSWORD` in the `env` block if preferred.
 
@@ -46,7 +46,7 @@ cd mcp-for-page-builders && cargo build --release
 
 Credentials are stored internally by the MCP server — **never in the MCP client config**.
 
-- Storage file: `~/.config/elementor-mcp/sites.json`
+- Storage file: `~/.config/mcp-for-page-builders/sites.json`
 - Supports multiple sites with an "active" site concept
 - Auto-loads on startup, auto-saves on connect/disconnect/switch
 - Use `list_sites` to see all connections
@@ -164,7 +164,7 @@ Credentials are stored internally by the MCP server — **never in the MCP clien
 ### Bridge & Scaffolding (2)
 | Tool | Description |
 |---|---|
-| `install_bridge` | Install Elementor MCP Bridge plugin |
+| `install_bridge` | Install MCP Bridge plugin |
 | `create_widget` | Scaffold and deploy custom Elementor widget PHP class |
 
 ### Utilities (6)

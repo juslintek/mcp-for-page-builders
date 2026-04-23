@@ -57,5 +57,5 @@ pub fn config_path(wp_url: &str) -> PathBuf {
 pub fn config_dir() -> PathBuf {
     std::env::var("HOME").map_or_else(|_| PathBuf::from("."), PathBuf::from)
         .join(".config")
-        .join("elementor-mcp")
+        .join("mcp-for-page-builders")
 }

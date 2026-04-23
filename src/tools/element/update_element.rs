@@ -41,7 +41,9 @@ impl Tool for UpdateElement {
             return Ok(ToolResult::error(format!("Element {eid} not found on page {page_id}")));
         }
 
+        let jid = wp.session.as_ref().map(|s| s.record("update_element", wp.base_url(), &format!("page:{page_id}/el:{eid}")));
         svc.save_tree(page_id, &tree).await?;
+        if let (Some(s), Some(id)) = (&wp.session, jid) { s.complete(&id); }
         Ok(ToolResult::text(format!("Updated settings for element {eid} on page {page_id}")))
     }
 }

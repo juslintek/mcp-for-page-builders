@@ -22,6 +22,7 @@ pub mod install_config;
 pub mod site;
 pub mod wp_api;
 pub mod media;
+pub mod session_state;
 
 pub use crate::types::Tool;
 
@@ -45,6 +46,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(element::GetElement),
         Box::new(element::AddElement),
         Box::new(element::UpdateElement),
+        Box::new(element::PatchElements),
         Box::new(element::RemoveElement),
         Box::new(element::MoveElement),
         Box::new(element::DuplicateElement),
@@ -102,5 +104,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(wp_api::WpSearch),
         // Media
         Box::new(media::UploadMedia),
+        // Session
+        Box::new(session_state::GetSessionState),
     ]
 }
