@@ -37,6 +37,25 @@ impl Tool for Authenticate {
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let preset_url = args.get("wp_url").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
 
+        // Verify the WordPress site is reachable before starting the flow
+        if let Some(url) = &preset_url {
+            let check_url = format!("{}/wp-json/", url.trim_end_matches('/'));
+            let accept_invalid = std::env::var("WP_TLS_INSECURE").is_ok();
+            let client = reqwest::Client::builder()
+                .danger_accept_invalid_certs(accept_invalid)
+                .timeout(std::time::Duration::from_secs(10))
+                .build()?;
+            match client.head(&check_url).send().await {
+                Ok(resp) if resp.status().is_server_error() => {
+                    return Ok(ToolResult::error(format!("WordPress site returned {}: {url}", resp.status())));
+                }
+                Err(e) => {
+                    return Ok(ToolResult::error(format!("Cannot reach {url}: {e:#}")));
+                }
+                Ok(_) => {} // reachable
+            }
+        }
+
         // Bind plain HTTP on random port
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let port = std_listener.local_addr()?.port();
@@ -66,12 +85,8 @@ impl Tool for Authenticate {
         *tunnel_holder.lock().await = tunnel_url.clone();
         eprintln!("[auth] Step 3/5: Tunnel ready at {tunnel_url}");
 
-        // 3. Wait a bit for tunnel DNS to propagate, then open browser
-        eprintln!("[auth] Step 4/5: Waiting 5s for tunnel DNS propagation...");
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
         let open_url = format!("{tunnel_url}/");
-        eprintln!("[auth] Step 5/5: Opening browser → {open_url}");
+        eprintln!("[auth] Step 4/5: Opening browser → {open_url}");
         open_browser(&open_url);
 
         let completed = tokio::time::timeout(
@@ -85,8 +100,7 @@ impl Tool for Authenticate {
 
         let auth = result.lock().await;
         match auth.as_ref() {
-            Some(AuthResult { wp_url, user, password, error: None }) => {
-                save_config(wp_url, user, password)?;
+            Some(AuthResult { wp_url, user, error: None, .. }) => {
                 Ok(ToolResult::text(format!(
                     "Authenticated successfully!\n\nSite: {wp_url}\nUser: {user}\nCredentials saved to: {}",
                     config_path(wp_url).display()
@@ -105,59 +119,126 @@ impl Tool for Authenticate {
 struct AuthResult {
     wp_url: String,
     user: String,
-    password: String,
     error: Option<String>,
 }
 
 // ── Tunnel ───────────────────────────────────────────────────────────────────
 
 fn start_tunnel(port: u16) -> Result<String> {
-    if which("ngrok") {
-        eprintln!("[auth] Trying ngrok tunnel...");
-        if let Ok(url) = try_ngrok(port) {
-            if healthcheck(&url) { return Ok(url); }
-            eprintln!("[auth] ngrok healthcheck failed, trying next...");
-        } else {
-            eprintln!("[auth] ngrok failed, trying next...");
+    // Check for existing live tunnel first
+    if let Some(url) = load_existing_tunnel() {
+        eprintln!("[auth] Found existing tunnel: {url}");
+        if healthcheck(&url) {
+            eprintln!("[auth] Existing tunnel is alive, reusing it");
+            return Ok(url);
+        }
+        eprintln!("[auth] Existing tunnel is dead, cleaning up...");
+        clear_tunnel_state();
+    }
+
+    // Kill ALL stale tunnel processes from previous MCP sessions
+    cleanup_stale_tunnels();
+
+    // Try each provider with retries
+    let providers: Vec<(&str, fn(u16) -> Result<String>)> = vec![
+        ("cloudflared", try_cloudflared as fn(u16) -> Result<String>),
+        ("ngrok", try_ngrok as fn(u16) -> Result<String>),
+        ("localhost.run", try_localhost_run as fn(u16) -> Result<String>),
+    ];
+
+    for (name, try_fn) in &providers {
+        if !which(if *name == "localhost.run" { "ssh" } else { name }) {
+            continue;
+        }
+        eprintln!("[auth] Trying {name}...");
+        match try_fn(port) {
+            Ok(url) => {
+                eprintln!("[auth] {name} tunnel URL: {url}");
+                // Give the HTTP server a moment, then healthcheck
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                if healthcheck(&url) {
+                    save_tunnel_state(name, &url, port);
+                    return Ok(url);
+                }
+                // Retry healthcheck with longer wait (DNS propagation)
+                eprintln!("[auth] {name} healthcheck failed, retrying after 5s...");
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                if healthcheck(&url) {
+                    save_tunnel_state(name, &url, port);
+                    return Ok(url);
+                }
+                eprintln!("[auth] {name} healthcheck failed after retry, trying next provider...");
+            }
+            Err(e) => {
+                eprintln!("[auth] {name} failed: {e:#}");
+            }
         }
     }
-    if which("cloudflared") {
-        eprintln!("[auth] Trying cloudflared tunnel...");
-        if let Ok(url) = try_cloudflared(port) {
-            if healthcheck(&url) { return Ok(url); }
-            eprintln!("[auth] cloudflared healthcheck failed, trying next...");
-        } else {
-            eprintln!("[auth] cloudflared failed, trying next...");
-        }
-    }
-    if which("ssh") {
-        eprintln!("[auth] Trying localhost.run tunnel...");
-        if let Ok(url) = try_localhost_run(port) {
-            if healthcheck(&url) { return Ok(url); }
-            eprintln!("[auth] localhost.run healthcheck failed");
-        } else {
-            eprintln!("[auth] localhost.run failed");
-        }
-    }
+
     anyhow::bail!(
-        "No tunnel tool found or all healthchecks failed. Install one of:\n  brew install ngrok\n  brew install cloudflared\n  (or ssh for localhost.run)"
+        "All tunnel providers failed. Ensure one of these is installed and working:\n\
+         • cloudflared (brew install cloudflared)\n\
+         • ngrok (brew install ngrok — requires auth token)\n\
+         • ssh (for localhost.run)"
     )
 }
 
+fn cleanup_stale_tunnels() {
+    // Kill MCP-spawned quick tunnels (not system daemons with --token)
+    let _ = std::process::Command::new("pkill").args(["-f", "cloudflared tunnel --url"]).output();
+    let _ = std::process::Command::new("pkill").args(["-f", "ngrok http"]).output();
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+
+fn tunnel_state_path() -> std::path::PathBuf {
+    crate::util::config_dir().join("tunnel.json")
+}
+
+fn save_tunnel_state(provider: &str, url: &str, port: u16) {
+    let state = serde_json::json!({
+        "provider": provider,
+        "url": url,
+        "port": port,
+        "pid": std::process::id(),
+        "ts": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+    });
+    let _ = std::fs::write(tunnel_state_path(), serde_json::to_string_pretty(&state).unwrap_or_default());
+}
+
+fn load_existing_tunnel() -> Option<String> {
+    let data = std::fs::read_to_string(tunnel_state_path()).ok()?;
+    let state: serde_json::Value = serde_json::from_str(&data).ok()?;
+    let url = state["url"].as_str()?.to_string();
+    let ts = state["ts"].as_u64().unwrap_or(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if now - ts > 3600 {
+        let _ = std::fs::remove_file(tunnel_state_path());
+        return None;
+    }
+    Some(url)
+}
+
+fn clear_tunnel_state() {
+    let _ = std::fs::remove_file(tunnel_state_path());
+}
+
 fn healthcheck(url: &str) -> bool {
-    for i in 1..=5 {
+    for i in 1..=3 {
         if let Ok(out) = std::process::Command::new("curl")
-            .args(["-s", "--max-time", "5", url])
+            .args(["-sL", "--max-time", "8", "-o", "/dev/null", "-w", "%{http_code}", url])
             .output()
         {
-            let body = String::from_utf8_lossy(&out.stdout);
-            if body.contains("Connect WordPress") {
-                eprintln!("[auth] Healthcheck passed on attempt {i}");
+            let code = String::from_utf8_lossy(&out.stdout);
+            // Any 2xx/3xx from our server means it's working
+            if code.starts_with('2') || code.starts_with('3') {
+                eprintln!("[auth] Healthcheck passed (HTTP {code}) on attempt {i}");
                 return true;
             }
-            eprintln!("[auth] Healthcheck attempt {i}: {}B, not our page", body.len());
+            eprintln!("[auth] Healthcheck attempt {i}: HTTP {code}");
         }
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        if i < 3 {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
     }
     false
 }
@@ -171,12 +252,6 @@ fn which(cmd: &str) -> bool {
 fn try_cloudflared(port: u16) -> Result<String> {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
-
-    // Kill stale quick-tunnel processes from previous runs
-    // (only those using --url, not named tunnels with --token)
-    let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --url"]).output();
-    eprintln!("[auth] Killed stale cloudflared quick-tunnels, waiting 2s...");
-    std::thread::sleep(std::time::Duration::from_secs(2));
 
     let mut child = Command::new("cloudflared")
         .args(["tunnel", "--url", &format!("http://localhost:{port}"), "--no-autoupdate"])
@@ -192,54 +267,52 @@ fn try_cloudflared(port: u16) -> Result<String> {
         let line = line?;
         if url.is_none() {
             url = extract_https_url(&line, "trycloudflare.com");
-            if url.is_some() {
-                eprintln!("[auth] Tunnel URL: {}", url.as_ref().unwrap());
-            }
         }
-        // Wait until at least one connection is registered
+        // Once we have URL and connection is registered, we're good
         if url.is_some() && line.contains("Registered tunnel connection") {
-            eprintln!("[auth] Tunnel connection registered!");
             std::mem::forget(child);
             return Ok(url.unwrap());
         }
     }
     let _ = child.kill();
-    anyhow::bail!("cloudflared failed to produce tunnel URL")
+    // If we got a URL but no "Registered" message, still try it
+    if let Some(u) = url {
+        return Ok(u);
+    }
+    anyhow::bail!("cloudflared failed to produce tunnel URL within 30s")
 }
 
 fn try_ngrok(port: u16) -> Result<String> {
     use std::process::{Command, Stdio};
 
-    // Kill stale ngrok from previous runs
-    let _ = Command::new("pkill").args(["-f", "ngrok http"]).output();
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
-    // Start ngrok in background
+    // Start ngrok
     let child = Command::new("ngrok")
         .args(["http", &port.to_string(), "--log", "stdout", "--log-format", "json"])
         .stdout(Stdio::null()).stderr(Stdio::null())
         .spawn()?;
     std::mem::forget(child);
 
-    // ngrok exposes an API on localhost:4040
+    // Poll ngrok API — try ports 4040-4045 (ngrok picks next available)
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(500));
-        if let Ok(resp) = std::process::Command::new("curl")
-            .args(["-s", "http://localhost:4040/api/tunnels"])
-            .output()
-        {
-            let body = String::from_utf8_lossy(&resp.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                if let Some(url) = json["tunnels"][0]["public_url"].as_str() {
-                    if url.starts_with("https://") {
-                        return Ok(url.to_string());
+        for api_port in 4040..=4045 {
+            if let Ok(resp) = Command::new("curl")
+                .args(["-s", &format!("http://localhost:{api_port}/api/tunnels")])
+                .output()
+            {
+                let body = String::from_utf8_lossy(&resp.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if let Some(url) = json["tunnels"][0]["public_url"].as_str() {
+                        if url.starts_with("https://") {
+                            return Ok(url.to_string());
+                        }
                     }
                 }
             }
         }
     }
-    anyhow::bail!("ngrok failed to produce tunnel URL")
+    anyhow::bail!("ngrok failed to produce tunnel URL within 15s")
 }
 
 fn try_localhost_run(port: u16) -> Result<String> {
@@ -263,7 +336,7 @@ fn try_localhost_run(port: u16) -> Result<String> {
         }
     }
     let _ = child.kill();
-    anyhow::bail!("localhost.run failed to produce tunnel URL")
+    anyhow::bail!("localhost.run failed to produce tunnel URL within 15s")
 }
 
 fn extract_https_url(line: &str, domain: &str) -> Option<String> {
@@ -311,14 +384,15 @@ async fn serve(
                 let wp_url = extract_query(path, "site_url")
                     .or_else(|| preset_url.clone())
                     .unwrap_or_default();
+                let _ = save_config(&wp_url, &user, &password);
                 *result.lock().await = Some(AuthResult {
-                    wp_url, user, password, error: None,
+                    wp_url, user, error: None,
                 });
                 done.notify_one();
                 page_success()
             } else {
                 *result.lock().await = Some(AuthResult {
-                    wp_url: String::new(), user: String::new(), password: String::new(),
+                    wp_url: String::new(), user: String::new(),
                     error: Some("Authorization was rejected".into()),
                 });
                 done.notify_one();

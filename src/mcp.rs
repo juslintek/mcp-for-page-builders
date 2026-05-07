@@ -42,4 +42,18 @@ impl Stdio {
         self.writer.flush().await?;
         Ok(())
     }
+
+    /// Send a JSON-RPC notification (no id, no response expected).
+    pub async fn write_notification(&mut self, method: &str, params: serde_json::Value) -> Result<()> {
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        let mut json = serde_json::to_string(&msg)?;
+        json.push('\n');
+        self.writer.write_all(json.as_bytes()).await?;
+        self.writer.flush().await?;
+        Ok(())
+    }
 }

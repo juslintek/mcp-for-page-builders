@@ -68,14 +68,17 @@ async fn main() -> Result<()> {
         Err(e) => { eprintln!("Session acquire failed (non-fatal): {e}"); None }
     };
 
-    let wp = {
+    let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel::<crate::wp::ServerNotification>();
+
+    let mut wp = {
         let s = store.read().await;
         let client = if let Some(creds) = s.get_active() {
             WpClient::from_creds(creds).with_store(store.clone())
         } else {
-            eprintln!("No WP_URL set — starting in CDP-only mode. WordPress tools will prompt for setup.");
+            eprintln!("No active site — starting in CDP-only mode. WordPress tools will prompt for setup.");
             WpClient::unconfigured().with_store(store.clone())
         };
+        let client = client.with_notifier(notify_tx);
         if let Some(sess) = session { client.with_session(sess) } else { client }
     };
 
@@ -95,6 +98,23 @@ async fn main() -> Result<()> {
         }
         let resp = handle(&req.method, &req.params, req.id.clone(), &tools, &wp).await;
         stdio.write_response(&resp).await?;
+
+        // Drain notification channel — handle reconfigure/tool-change requests from tools
+        while let Ok(notif) = notify_rx.try_recv() {
+            match notif {
+                crate::wp::ServerNotification::Reconfigure => {
+                    let s = store.read().await;
+                    if let Some(creds) = s.get_active() {
+                        info!("Reconfiguring WpClient → {}", creds.url);
+                        wp.reconfigure(creds);
+                    }
+                }
+                crate::wp::ServerNotification::ToolsChanged => {
+                    info!("Sending notifications/tools/list_changed");
+                    let _ = stdio.write_notification("notifications/tools/list_changed", json!(null)).await;
+                }
+            }
+        }
     }
 
     Ok(())
@@ -107,7 +127,7 @@ async fn handle(
     match method {
         "initialize" => Response::ok(id, json!({
             "protocolVersion": "2024-11-05",
-            "capabilities": { "tools": { "listChanged": false } },
+            "capabilities": { "tools": { "listChanged": true } },
             "serverInfo": { "name": "mcp-for-page-builders", "version": env!("CARGO_PKG_VERSION") }
         })),
         "tools/list" => {
@@ -126,7 +146,22 @@ async fn handle(
                     match t.run(args, wp).await {
                         Ok(result) => Response::ok(id, serde_json::to_value(result).unwrap()),
                         Err(e) => {
-                            let result = mcp::ToolResult::error(format!("{e:#}"));
+                            let msg = format!("{e:#}");
+                            let result = if let Some(root) = crate::util::dev_project_root() {
+                                mcp::ToolResult::error(format!(
+                                    "{msg}\n\n\
+                                    ---\n\
+                                    🔧 **Self-improvement hint** (dev mode detected):\n\
+                                    This MCP server is running from a local build at `{root}`.\n\
+                                    The tool `{name}` failed with the error above.\n\
+                                    To fix: inspect the source in `{root}/src/tools/`, fix the bug, then rebuild:\n\
+                                    ```\ncd {root} && cargo build --release\n```\n\
+                                    The server will pick up changes on next restart.",
+                                    root = root.display()
+                                ))
+                            } else {
+                                mcp::ToolResult::error(msg)
+                            };
                             Response::ok(id, serde_json::to_value(result).unwrap())
                         }
                     }

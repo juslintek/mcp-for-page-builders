@@ -62,6 +62,8 @@ impl Tool for ConnectSite {
         let mut s = store.write().await;
         s.add_site(SiteCredentials { url: url.clone(), user, app_password });
         s.save()?;
+        drop(s);
+        wp.notify(crate::wp::ServerNotification::Reconfigure);
         Ok(ToolResult::text(format!("Connected to {url}. Use switch_site to make it active.")))
     }
 }
@@ -114,6 +116,8 @@ impl Tool for SwitchSite {
         let mut s = store.write().await;
         s.switch(url)?;
         s.save()?;
-        Ok(ToolResult::text(format!("Switched active site to {url}. Restart the server or reconnect for the change to take effect.")))
+        drop(s);
+        wp.notify(crate::wp::ServerNotification::Reconfigure);
+        Ok(ToolResult::text(format!("Switched active site to {url}. Client will reconfigure automatically.")))
     }
 }

@@ -2,7 +2,7 @@
 
 A high-performance MCP (Model Context Protocol) server for WordPress page builders — written in Rust.
 
-**5.4MB binary · ~3MB RAM · ~1ms startup · 59 tools**
+**5.4MB binary · ~3MB RAM · ~1ms startup · 74 tools**
 
 ## Purpose
 
@@ -46,7 +46,37 @@ cd mcp-for-page-builders
 cargo build --release
 ```
 
-Add to your MCP client config (e.g. `.kiro/settings/mcp.json`):
+Add to your MCP client config (e.g. `.kiro/settings/mcp.json`, `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "mcp-for-page-builders": {
+      "command": "/path/to/mcp-for-page-builders"
+    }
+  }
+}
+```
+
+Then connect to a WordPress site:
+
+```
+Use the `authenticate` tool with wp_url "https://your-site.com"
+```
+
+This opens a browser for WordPress Application Password approval — no credentials in config files. Credentials are stored internally in `~/.config/mcp-for-page-builders/`.
+
+### Multi-Site Support
+
+Connect multiple sites. Switch between them without restarting:
+
+```
+Use `connect_site` to add a site, or `switch_site` to change the active site.
+```
+
+### Legacy: Environment Variables
+
+You can still pass credentials via environment variables if preferred:
 
 ```json
 {
@@ -254,12 +284,22 @@ If `pre_js` executes but the page state doesn't change, a warning is included in
 | `ensure_site` | Check URL reachability, auto-detect and boot DDEV/Lando environments |
 | `setup_wizard` | Interactive WordPress connection setup with options and instructions |
 
+### Multi-Site Management
+
+| Tool | Description |
+|---|---|
+| `authenticate` | Browser-based WordPress authentication — no credentials in config |
+| `connect_site` | Add a site connection (credentials stored internally) |
+| `switch_site` | Switch active site without restart (hot-reload) |
+| `list_sites` | List all stored site connections |
+| `disconnect_site` | Remove a stored site connection |
+
 ### Utilities
 
 | Tool | Description |
 |---|---|
 | `seed_content` | Create demo pages with various layouts and widgets |
-| `authenticate` | Browser-based WordPress authentication flow |
+| `get_session_state` | Recover context after crash — shows active site, pending ops |
 
 ## Local Environment Detection
 
@@ -285,12 +325,13 @@ The plugin exposes additional REST endpoints that WordPress's built-in API doesn
 
 Without the bridge, `get_wp_option` and `set_wp_option` fall back to the standard `wp/v2/settings` endpoint, which only exposes a small allowlisted subset of options. The bridge removes that restriction, giving the MCP server full access to any option — including Elementor's internal configuration, Theme Builder conditions, and third-party plugin settings.
 
-The `install_bridge` tool handles installation automatically using a four-step fallback chain:
+The `install_bridge` tool handles installation automatically using a five-step fallback chain:
 
 1. Check if the bridge is already active (no-op if so)
 2. Auto-install and activate from wordpress.org via the plugins REST API
-3. Deploy as an mu-plugin snippet via the option endpoint (if step 2 fails)
-4. Return the PHP snippet and WP-CLI command for manual installation
+3. Activate if already uploaded but inactive
+4. Bootstrap via Code Snippets — installs the `code-snippets` plugin, creates a snippet that writes the bridge plugin file, activates the bridge, then removes Code Snippets entirely (no passwords or cookies needed)
+5. Return the PHP snippet for manual installation
 
 The bridge plugin is intentionally minimal — it adds no admin UI, no settings page, and no frontend output. Its sole purpose is to extend the REST API surface available to this MCP server.
 
@@ -322,7 +363,7 @@ src/
 ├── cdp.rs             — Chrome DevTools Protocol (crash recovery, pre_js, local URL check)
 ├── elementor/         — Element types, tree operations, service layer
 └── tools/
-    ├── mod.rs         — Tool trait + registry (59 tools)
+    ├── mod.rs         — Tool trait + registry (74 tools)
     ├── page/          — Page CRUD
     ├── post/          — Post CRUD
     ├── element/       — Element operations

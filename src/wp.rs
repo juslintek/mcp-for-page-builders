@@ -77,6 +77,15 @@ impl SiteStore {
 
 pub type SharedStore = Arc<RwLock<SiteStore>>;
 
+/// Notifications that tools can send to the main loop.
+#[derive(Debug)]
+pub enum ServerNotification {
+    /// WpClient should be rebuilt from the current active site in the store.
+    Reconfigure,
+    /// Tool list has changed — send notifications/tools/list_changed.
+    ToolsChanged,
+}
+
 pub struct WpClient {
     http: reqwest::Client,
     base_url: String,
@@ -84,6 +93,7 @@ pub struct WpClient {
     configured: bool,
     store: Option<SharedStore>,
     pub session: Option<Arc<crate::session::Session>>,
+    notify_tx: Option<tokio::sync::mpsc::UnboundedSender<ServerNotification>>,
 }
 
 impl WpClient {
@@ -101,6 +111,7 @@ impl WpClient {
             configured: true,
             store: None,
             session: None,
+            notify_tx: None,
         }
     }
 
@@ -122,6 +133,7 @@ impl WpClient {
             configured: false,
             store: None,
             session: None,
+            notify_tx: None,
         }
     }
 
@@ -135,6 +147,27 @@ impl WpClient {
 
     pub fn store(&self) -> Option<&SharedStore> {
         self.store.as_ref()
+    }
+
+    pub fn with_notifier(mut self, tx: tokio::sync::mpsc::UnboundedSender<ServerNotification>) -> Self {
+        self.notify_tx = Some(tx);
+        self
+    }
+
+    /// Send a notification to the main loop.
+    pub fn notify(&self, n: ServerNotification) {
+        if let Some(tx) = &self.notify_tx {
+            let _ = tx.send(n);
+        }
+    }
+
+    /// Rebuild this client from the given credentials, preserving store/session/notifier.
+    pub fn reconfigure(&mut self, creds: &SiteCredentials) {
+        let fresh = Self::new(&creds.url, &creds.user, &creds.app_password);
+        self.http = fresh.http;
+        self.base_url = fresh.base_url;
+        self.auth = fresh.auth;
+        self.configured = fresh.configured;
     }
 
     pub fn require_configured(&self) -> Result<()> {
