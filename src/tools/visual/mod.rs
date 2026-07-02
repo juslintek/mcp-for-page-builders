@@ -2,6 +2,7 @@ mod screenshot;
 mod screenshot_page;
 mod visual_compare;
 mod extract_styles;
+mod ui_quality_audit;
 mod visual_diff;
 mod match_styles;
 
@@ -9,6 +10,7 @@ pub use screenshot::Screenshot;
 pub use screenshot_page::ScreenshotPage;
 pub use visual_compare::VisualCompare;
 pub use extract_styles::ExtractStyles;
+pub use ui_quality_audit::UiQualityAudit;
 pub use visual_diff::VisualDiff;
 pub use match_styles::MatchStyles;
 

@@ -16,20 +16,70 @@ use tokio::sync::RwLock;
 
 static CDP: RwLock<Option<Arc<Browser>>> = RwLock::const_new(None);
 
-async fn launch_browser() -> Result<Arc<Browser>> {
-    let user_data_dir = std::env::temp_dir().join("mcp-for-page-builders-cdp");
-    let _ = std::fs::create_dir_all(&user_data_dir);
-
-    // Kill any orphaned Chrome using our data dir, then clean stale lock
-    #[cfg(unix)]
-    {
-        let dir_str = user_data_dir.display().to_string();
+/// Best-effort cleanup of profile directories (and any Chrome process still
+/// using them) left behind by a previous `mcp-for-page-builders` instance
+/// that crashed or was killed without a chance to clean up after itself.
+/// Only removes dirs whose PID suffix no longer corresponds to a live
+/// process — never touches a dir belonging to another currently-running
+/// instance. Safe to call on every startup; failures are non-fatal.
+#[cfg(unix)]
+fn sweep_stale_cdp_profiles() {
+    let temp_dir = std::env::temp_dir();
+    let Ok(entries) = std::fs::read_dir(&temp_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid_str) = name.strip_prefix("mcp-for-page-builders-cdp-") else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        if pid == std::process::id() {
+            continue; // never touch our own dir
+        }
+        // `kill -0` checks liveness without sending a real signal.
+        let alive = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if alive {
+            continue; // that instance is still running, leave it alone
+        }
+        let dir_str = entry.path().display().to_string();
         let _ = std::process::Command::new("pkill")
             .args(["-f", &format!("user-data-dir=.*{dir_str}")])
             .output();
-        // Give the process time to die
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let _ = std::fs::remove_dir_all(entry.path());
+        tracing::info!("Swept stale CDP profile from dead PID {pid}: {dir_str}");
     }
+}
+
+async fn launch_browser() -> Result<Arc<Browser>> {
+    #[cfg(unix)]
+    sweep_stale_cdp_profiles();
+
+    // Scope the Chrome profile dir to this process's PID. Multiple
+    // mcp-for-page-builders instances can run concurrently (e.g. parallel
+    // subagent sessions each spawning their own MCP server) — a shared,
+    // fixed profile dir caused them to race: one instance's stale-lock
+    // cleanup / pkill would kill a *different* instance's legitimate Chrome
+    // process, surfacing as "transport closed" / non-JSON-RPC stdout errors
+    // in whichever MCP client lost the race. A PID-scoped dir makes every
+    // server instance fully independent; the sweep above reaps directories
+    // left behind by crashed instances so they don't accumulate forever.
+    let user_data_dir = std::env::temp_dir().join(format!(
+        "mcp-for-page-builders-cdp-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::create_dir_all(&user_data_dir);
+
+    // Best-effort cleanup of a stale lock from a previous *crashed* run of
+    // this exact PID's dir (extremely unlikely given PIDs aren't reused
+    // quickly, but harmless if it does happen). No pkill here — this
+    // process's own dir can only ever be touched by itself.
     let lock = user_data_dir.join("SingletonLock");
     if lock.exists() {
         let _ = std::fs::remove_file(&lock);

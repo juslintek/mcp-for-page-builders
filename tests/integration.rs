@@ -1,4 +1,4 @@
-//! Integration tests — cover ALL 41 MCP tools against live `WordPress`.
+//! Integration tests — cover ALL 42 MCP tools against live `WordPress`.
 //! Run: `WP_TEST_URL=http://localhost:8080` `WP_TEST_USER=admin` `WP_TEST_PASS=xxx` cargo test --test integration
 
 use mcp_for_page_builders::elementor::{self, Element};
@@ -419,7 +419,7 @@ async fn tool_get_experiments() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VISUAL (3 tools — test that they fail gracefully without Chrome)
+// VISUAL (4 tools — test that they fail gracefully without Chrome)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
@@ -448,6 +448,15 @@ async fn tool_visual_compare_no_chrome() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::VisualCompare;
     let result = tool.run(json!({"url_a": "http://localhost:18095/", "url_b": "http://localhost:18095/"}), &wp).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn tool_ui_quality_audit_no_chrome() {
+    use mcp_for_page_builders::tools::Tool;
+    let wp = require_wp!();
+    let tool = mcp_for_page_builders::tools::visual::UiQualityAudit;
+    let result = tool.run(json!({"url": "http://localhost:18095/"}), &wp).await;
     assert!(result.is_ok());
 }
 

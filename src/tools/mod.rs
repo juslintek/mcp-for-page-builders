@@ -68,6 +68,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(visual::ExtractStyles),
         Box::new(visual::VisualDiff),
         Box::new(visual::MatchStyles),
+        Box::new(visual::UiQualityAudit),
         Box::new(inspect::InspectPage),
         Box::new(css_map::CssToElementor),
         Box::new(editor::ElementorEditor),

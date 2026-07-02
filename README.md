@@ -2,7 +2,7 @@
 
 A high-performance MCP (Model Context Protocol) server for WordPress page builders — written in Rust.
 
-**5.4MB binary · ~3MB RAM · ~1ms startup · 74 tools**
+**5.4MB binary · ~3MB RAM · ~1ms startup · 75 tools**
 
 ## Purpose
 
@@ -210,9 +210,24 @@ Requires Chrome/Chromium installed. All visual tools support `pre_js` for page i
 | `visual_compare` | Side-by-side stitched comparison of two URLs — returns combined image |
 | `visual_diff` | Element-by-element structured comparison with match score — auto-discovers selectors |
 | `extract_styles` | Extract computed CSS from a live page element |
+| `ui_quality_audit` | Combined audit: screenshot + accessibility sampling + optional reference mismatch + Lighthouse metrics |
 | `inspect_page` | Inspect DOM element — bounding box, computed styles, children tree |
 | `clone_element` | Clone live DOM element as Elementor JSON |
 | `match_styles` | One-shot visual parity: extract CSS → convert to Elementor → apply to element |
+
+Example (`ui_quality_audit`):
+
+```json
+{
+  "name": "ui_quality_audit",
+  "arguments": {
+    "url": "https://staging.example.com",
+    "reference_url": "https://production.example.com",
+    "run_pagespeed": true,
+    "pagespeed_strategy": "mobile"
+  }
+}
+```
 
 #### `pre_js` — Page Interaction Before Capture
 
@@ -363,7 +378,7 @@ src/
 ├── cdp.rs             — Chrome DevTools Protocol (crash recovery, pre_js, local URL check)
 ├── elementor/         — Element types, tree operations, service layer
 └── tools/
-    ├── mod.rs         — Tool trait + registry (74 tools)
+    ├── mod.rs         — Tool trait + registry (75 tools)
     ├── page/          — Page CRUD
     ├── post/          — Post CRUD
     ├── element/       — Element operations
