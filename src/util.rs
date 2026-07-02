@@ -60,6 +60,16 @@ pub fn config_dir() -> PathBuf {
         .join("mcp-for-page-builders")
 }
 
+/// Directory for this server's own log files, independent of stdout/stderr.
+///
+/// Defaults to `~/.config/mcp-for-page-builders/logs/`, overridable via
+/// `MCP_LOG_DIR` (used by tests to isolate concurrent server instances
+/// from sharing — and racing on — the same log directory).
+pub fn log_dir() -> PathBuf {
+    std::env::var("MCP_LOG_DIR")
+        .map_or_else(|_| config_dir().join("logs"), PathBuf::from)
+}
+
 /// Returns the project root if running from a local dev build (target/release or target/debug).
 pub fn dev_project_root() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;

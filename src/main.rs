@@ -7,10 +7,13 @@ mod elementor;
 mod tools;
 mod setup;
 mod session;
+mod logging;
 pub mod cdp;
 
 use anyhow::Result;
+use futures::FutureExt;
 use serde_json::{json, Value};
+use std::panic::AssertUnwindSafe;
 use tracing::info;
 
 use crate::mcp::{Response, Stdio};
@@ -34,13 +37,9 @@ async fn main() -> Result<()> {
     }
 
     // MCP server mode
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "mcp_for_page_builders=info".parse().unwrap()),
-        )
-        .init();
+    // Keep the guard alive for the whole process — dropping it stops the
+    // background file-log writer thread.
+    let _log_guard = logging::init()?;
 
     // Load site store
     let mut site_store = crate::wp::SiteStore::load();
@@ -89,15 +88,51 @@ async fn main() -> Result<()> {
     info!("mcp-for-page-builders started ({} tools) → {}", tools.len(), mode);
 
     loop {
-        let Some(req) = stdio.read_request().await? else {
-            break;
+        let req = match stdio.read_request().await {
+            Ok(Some(req)) => req,
+            Ok(None) => break, // true EOF — client closed the pipe
+            Err(e) => {
+                // A truly malformed line is now handled inside read_request
+                // itself (it logs and continues). Reaching here means an
+                // I/O-level error on stdin, which is unrecoverable — log it
+                // durably before exiting so there's evidence in the file log.
+                tracing::error!("Fatal stdin read error: {e:#}");
+                break;
+            }
         };
         // Notifications (no id) must not receive a response per JSON-RPC 2.0
         if req.id.is_none() {
             continue;
         }
-        let resp = handle(&req.method, &req.params, req.id.clone(), &tools, &wp).await;
-        stdio.write_response(&resp).await?;
+
+        // Catch panics per-request: a single bad tool call (e.g. a CDP
+        // task panicking) must not take down the whole server process,
+        // which the MCP client would otherwise observe as "the connection
+        // closed" with no diagnosable cause.
+        let id_for_panic = req.id.clone();
+        let resp = match AssertUnwindSafe(handle(&req.method, &req.params, req.id.clone(), &tools, &wp))
+            .catch_unwind()
+            .await
+        {
+            Ok(resp) => resp,
+            Err(panic_payload) => {
+                let msg = panic_payload
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_string())
+                    .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                tracing::error!("Tool call panicked (recovered, connection stays alive): {msg}");
+                Response::err(id_for_panic, -32603, "Internal error (recovered)".to_string())
+            }
+        };
+
+        if let Err(e) = stdio.write_response(&resp).await {
+            // If we can't write to stdout at all, the pipe is genuinely
+            // gone (client exited) — log it and exit cleanly rather than
+            // looping forever on a broken pipe.
+            tracing::error!("Fatal stdout write error, exiting: {e:#}");
+            break;
+        }
 
         // Drain notification channel — handle reconfigure/tool-change requests from tools
         while let Ok(notif) = notify_rx.try_recv() {
