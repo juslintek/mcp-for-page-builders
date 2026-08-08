@@ -30,6 +30,7 @@ impl ToolResult {
         Self { content: vec![ToolContent::Text { text: s.into() }], is_error: Some(true) }
     }
 
+    #[allow(dead_code)]
     pub fn image(bytes: &[u8], mime_type: &str) -> Self {
         Self {
             content: vec![ToolContent::Image {
@@ -40,7 +41,7 @@ impl ToolResult {
         }
     }
 
-    pub fn mixed(content: Vec<ToolContent>) -> Self {
+    pub const fn mixed(content: Vec<ToolContent>) -> Self {
         Self { content, is_error: None }
     }
 

@@ -80,10 +80,12 @@ pub fn icon_list(items: Vec<(&str, &str)>) -> Element {
     widget("icon-list", json!({"icon_list": list}))
 }
 
+#[allow(dead_code)]
 pub fn nav_menu(menu_name: &str) -> Element {
     widget("nav-menu", json!({"menu": menu_name, "layout": "horizontal", "pointer": "underline", "submenu_icon": {"value":"fas fa-angle-down","library":"fa-solid"}}))
 }
 
+#[allow(dead_code)]
 pub fn nav_menu_styled(menu_name: &str, text_color: &str, pointer_color: &str) -> Element {
     widget("nav-menu", json!({
         "menu": menu_name, "layout": "horizontal", "pointer": "underline",

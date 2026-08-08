@@ -1,13 +1,14 @@
+use std::fmt::Write;
+use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::path::Path;
 
-use crate::args::{str_arg, u64_arg};
+use crate::args::{bool_arg, str_arg, u64_arg};
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
 use crate::tools::Tool;
-use super::{cdp_screenshot, unix_timestamp};
+use super::{cdp_screenshot_opts, unix_timestamp};
 
 pub struct ScreenshotPage;
 
@@ -24,7 +25,8 @@ impl Tool for ScreenshotPage {
                 "width":{"type":"integer","default":1440},
                 "height":{"type":"integer","default":900},
                 "pre_js":{"type":"string","description":"JavaScript to execute before screenshot"},
-                "wait_ms":{"type":"integer","default":0,"description":"Milliseconds to wait after pre_js"}
+                "wait_ms":{"type":"integer","default":0,"description":"Milliseconds to wait after pre_js"},
+                "reuse_tab":{"type":"boolean","default":false,"description":"If true, looks up and reuses an active Chrome tab for this URL without opening a new tab or re-navigating"}
             }}),
         }
     }
@@ -36,15 +38,17 @@ impl Tool for ScreenshotPage {
         let height = u32::try_from(u64_arg(&args, "height").unwrap_or(900)).unwrap_or(900);
         let pre_js = str_arg(&args, "pre_js");
         let wait_ms = u64_arg(&args, "wait_ms").unwrap_or(0);
+        let reuse_tab = bool_arg(&args, "reuse_tab").unwrap_or(false);
 
         let page = wp.get(&format!("wp/v2/pages/{page_id}")).await?;
         let link = page["link"].as_str().ok_or_else(|| anyhow::anyhow!("Page has no link"))?;
         let url = if query.is_empty() { link.to_string() } else { format!("{link}?{query}") };
 
         let output = str_arg(&args, "output").unwrap_or_else(|| format!("/tmp/page-{page_id}-{}.png", unix_timestamp()));
-        let (bytes, warning) = cdp_screenshot(&url, Path::new(&output), width, height, pre_js.as_deref(), wait_ms).await?;
+        let (bytes, warning) = cdp_screenshot_opts(&url, Path::new(&output), width, height, pre_js.as_deref(), wait_ms, reuse_tab).await?;
         let mut msg = format!("Screenshot of page {page_id} saved to {output}\nURL: {url}");
-        if let Some(w) = warning { msg.push_str(&format!("\n⚠ {w}")); }
-        Ok(ToolResult::text_and_image(msg, &bytes, "image/png"))
+        if let Some(w) = warning { let _ = write!(msg, "\n⚠ {w}"); }
+        Ok(ToolResult::text_and_image(msg, &bytes, "image/jpeg"))
     }
 }
+

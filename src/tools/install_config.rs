@@ -13,6 +13,7 @@ const AGENTS_ROW: &str = include_str!("../../assets/agents_md_row.txt");
 
 pub struct InstallConfig;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Host {
     Kiro, ClaudeCode, ClaudeDesktop, GeminiCli, CodexCli, Cursor, Windsurf, Cline, Unknown,
@@ -39,9 +40,10 @@ fn home() -> PathBuf {
 }
 
 fn binary_path() -> String {
-    std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "/path/to/mcp-for-page-builders".into())
+    std::env::current_exe().map_or_else(
+        |_| "/path/to/mcp-for-page-builders".into(),
+        |p| p.display().to_string(),
+    )
 }
 
 fn detect_host() -> Host {
@@ -99,7 +101,9 @@ fn install_kiro(project: bool) -> Result<Vec<String>> {
     let steering = base.join("steering/AGENTS.md");
     if steering.exists() {
         let content = std::fs::read_to_string(&steering)?;
-        if !content.contains("wordpress") {
+        if content.contains("wordpress") {
+            log.push(format!("  ○ {} (already has wordpress)", steering.display()));
+        } else {
             let patched = if let Some(pos) = content.find("| `default`") {
                 let mut c = content.clone();
                 c.insert_str(pos, &format!("{AGENTS_ROW}\n"));
@@ -109,8 +113,6 @@ fn install_kiro(project: bool) -> Result<Vec<String>> {
             };
             std::fs::write(&steering, patched)?;
             log.push(format!("  ✓ {} (patched)", steering.display()));
-        } else {
-            log.push(format!("  ○ {} (already has wordpress)", steering.display()));
         }
     }
     Ok(log)
@@ -208,7 +210,9 @@ fn json_host_instructions(host: Host) -> String {
         Host::Cursor => (".cursor/mcp.json (project root)", "Restart Cursor to activate."),
         Host::Windsurf => ("~/.codeium/windsurf/mcp_config.json", "Restart Windsurf to activate."),
         Host::Cline => (".vscode/mcp.json or Cline MCP settings", "Restart Cline to activate."),
-        _ => ("your MCP config file", "Restart your client to activate."),
+        Host::Kiro | Host::ClaudeCode | Host::GeminiCli | Host::CodexCli | Host::Unknown => {
+            ("your MCP config file", "Restart your client to activate.")
+        }
     };
     format!(
         "For {host}, add to {file}:\n\n```json\n{snippet}\n```\n\n\

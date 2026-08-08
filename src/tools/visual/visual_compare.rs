@@ -1,16 +1,18 @@
+use std::fmt::Write;
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
+use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
 use serde_json::{json, Value};
 use std::path::Path;
 
 use crate::args::{str_arg, u64_arg};
 use crate::mcp::{ToolDef, ToolResult};
+use crate::tools::Tool;
 use crate::types::tool_result::ToolContent;
 use crate::wp::WpClient;
-use crate::tools::Tool;
-use super::{cdp_screenshot, unix_timestamp, comparison_html};
+use super::{cdp_screenshot, comparison_html, unix_timestamp};
 
 pub struct VisualCompare;
 
@@ -57,14 +59,16 @@ impl Tool for VisualCompare {
         let (bytes_a, warn_a) = cdp_screenshot(&url_a, &img_a, width, height, pre_js_a.as_deref(), wait_ms).await?;
         let (bytes_b, warn_b) = cdp_screenshot(&url_b, &img_b, width, height, pre_js_b.as_deref(), wait_ms).await?;
 
-        let html = comparison_html(&label_a, img_a.file_name().unwrap().to_str().unwrap(), &label_b, img_b.file_name().unwrap().to_str().unwrap(), &url_a, &url_b);
+        let file_a = img_a.file_name().unwrap_or_default().to_string_lossy();
+        let file_b = img_b.file_name().unwrap_or_default().to_string_lossy();
+        let html = comparison_html(&label_a, &file_a, &label_b, &file_b, &url_a, &url_b);
         tokio::fs::write(&html_out, &html).await?;
 
         // Generate stitched side-by-side image via CDP
         let b64_a = base64::engine::general_purpose::STANDARD.encode(&bytes_a);
         let b64_b = base64::engine::general_purpose::STANDARD.encode(&bytes_b);
         let stitch_html = format!(
-            r#"data:text/html,<html><head><style>*{{margin:0;padding:0}}body{{display:flex;background:%23111}}.pane{{flex:1}}.label{{background:%231a1a2e;color:%23eee;font:600 14px system-ui;padding:8px 12px;text-align:center}}img{{width:100%;display:block}}</style></head><body><div class="pane"><div class="label">{label_a}</div><img src="data:image/png;base64,{b64_a}"></div><div class="pane"><div class="label">{label_b}</div><img src="data:image/png;base64,{b64_b}"></div></body></html>"#
+            r#"data:text/html,<html><head><style>*{{margin:0;padding:0}}body{{display:flex;background:%23111}}.pane{{flex:1}}.label{{background:%231a1a2e;color:%23eee;font:600 14px system-ui;padding:8px 12px;text-align:center}}img{{width:100%;display:block}}</style></head><body><div class="pane"><div class="label">{label_a}</div><img src="data:image/jpeg;base64,{b64_a}"></div><div class="pane"><div class="label">{label_b}</div><img src="data:image/jpeg;base64,{b64_b}"></div></body></html>"#
         );
 
         let stitched_bytes = match stitch_via_cdp(&stitch_html, width * 2, height).await {
@@ -78,23 +82,44 @@ impl Tool for VisualCompare {
             }
         };
 
-        let mut text = format!("Comparison saved to {}\n{label_a}: {url_a}\n{label_b}: {url_b}", html_out.display());
-        if let Some(w) = warn_a { text.push_str(&format!("\n⚠ {label_a}: {w}")); }
-        if let Some(w) = warn_b { text.push_str(&format!("\n⚠ {label_b}: {w}")); }
+        let mut text = format!(
+            "Comparison saved to {}\nStitched file: file://{}\n{label_a}: {url_a} (file://{})\n{label_b}: {url_b} (file://{})",
+            html_out.display(),
+            stitched_out.display(),
+            img_a.display(),
+            img_b.display()
+        );
+        if let Some(w) = warn_a { let _ = write!(text, "\n⚠ {label_a}: {w}"); }
+        if let Some(w) = warn_b { let _ = write!(text, "\n⚠ {label_b}: {w}"); }
 
         let mut content = vec![ToolContent::Text { text }];
+        let mut inline_budget = super::MAX_INLINE_JPEG_BYTES;
 
         // Stitched image first (the main comparison view)
-        if let Some(ref sb) = stitched_bytes {
+        if let Some(ref sb) = stitched_bytes
+            && sb.len() <= inline_budget
+        {
             content.push(ToolContent::Image {
                 data: base64::engine::general_purpose::STANDARD.encode(sb),
-                mime_type: "image/png".into(),
+                mime_type: "image/jpeg".into(),
             });
+            inline_budget = inline_budget.saturating_sub(sb.len());
         }
 
-        // Individual images as fallback
-        content.push(ToolContent::Image { data: b64_a, mime_type: "image/png".into() });
-        content.push(ToolContent::Image { data: b64_b, mime_type: "image/png".into() });
+        // Individual images as fallback if budget allows
+        if bytes_a.len() <= inline_budget {
+            content.push(ToolContent::Image {
+                data: b64_a,
+                mime_type: "image/jpeg".into(),
+            });
+            inline_budget = inline_budget.saturating_sub(bytes_a.len());
+        }
+        if bytes_b.len() <= inline_budget {
+            content.push(ToolContent::Image {
+                data: b64_b,
+                mime_type: "image/jpeg".into(),
+            });
+        }
 
         Ok(ToolResult::mixed(content))
     }
@@ -104,7 +129,16 @@ async fn stitch_via_cdp(data_url: &str, width: u32, height: u32) -> Result<Vec<u
     let page = crate::cdp::open_page(data_url, width, height).await?;
     // Wait for images to render
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    let bytes = page.screenshot(ScreenshotParams::builder().full_page(true).build()).await
+    let bytes = page
+        .screenshot(
+            ScreenshotParams::builder()
+                .full_page(true)
+                .format(CaptureScreenshotFormat::Jpeg)
+                .quality(60)
+                .build(),
+        )
+        .await
         .map_err(|e| anyhow::anyhow!("Stitch screenshot failed: {e}"))?;
+    let _ = page.close().await;
     Ok(bytes)
 }

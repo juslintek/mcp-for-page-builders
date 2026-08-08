@@ -8,7 +8,7 @@ fn make_widget(id: &str, widget_type: &str) -> Element {
         widget_type: Some(widget_type.to_string()),
         settings: json!({}),
         elements: vec![],
-        extra: Default::default(),
+        extra: std::collections::HashMap::default(),
     }
 }
 
@@ -19,7 +19,7 @@ fn make_container(id: &str, children: Vec<Element>) -> Element {
         widget_type: None,
         settings: json!({}),
         elements: children,
-        extra: Default::default(),
+        extra: std::collections::HashMap::default(),
     }
 }
 
@@ -152,3 +152,21 @@ fn parse_serialize_roundtrip() {
     let reparsed = parse_data(&serialized).unwrap();
     assert_eq!(reparsed[0].settings["title"], "Hello");
 }
+
+#[tokio::test]
+async fn shadow_realm_spawn_and_fork() {
+    use mcp_for_page_builders::shadow_realm::ShadowEngine;
+
+    let engine = ShadowEngine::new();
+    let root = engine.spawn("Teams", "https://teams.microsoft.com").await.unwrap();
+    assert_eq!(root.app_name, "Teams");
+    assert_eq!(root.branch_depth, 0);
+
+    let fork = engine.fork(&root.id, Some("variant-a")).await.unwrap();
+    assert_eq!(fork.parent_id.as_deref(), Some(root.id.as_str()));
+    assert_eq!(fork.branch_depth, 1);
+
+    let list = engine.list().await;
+    assert_eq!(list.len(), 2);
+}
+

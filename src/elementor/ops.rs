@@ -127,10 +127,11 @@ pub async fn get_page_elements(wp: &crate::wp::WpClient, page_id: u64) -> anyhow
         format!("wp/v2/udesign_template/{page_id}?context=edit"),
     ];
     for ep in &endpoints {
-        if let Ok(page) = wp.get(ep).await {
-            if let Some(raw) = page.get("meta").and_then(|m| m.get("_elementor_data")).and_then(|d| d.as_str()) {
-                if !raw.is_empty() { return parse_data(raw); }
-            }
+        if let Ok(page) = wp.get(ep).await
+            && let Some(raw) = page.get("meta").and_then(|m| m.get("_elementor_data")).and_then(|d| d.as_str())
+            && !raw.is_empty()
+        {
+            return parse_data(raw);
         }
     }
     // Fall back to bridge postmeta endpoint

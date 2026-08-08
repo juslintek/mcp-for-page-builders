@@ -1,0 +1,8 @@
+[project]
+name = "mcp-for-page-builders"
+
+[runtimes]
+rust = "stable"
+
+[detect]
+auto = true

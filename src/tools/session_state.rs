@@ -20,7 +20,7 @@ impl Tool for GetSessionState {
     }
 
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
 
         let (pid, uptime_secs, pending, recent) = match &wp.session {
             Some(s) => {

@@ -47,7 +47,7 @@ impl Tool for CloneElement {
         let js = build_dom_inspect_js(selector, max_depth);
         let (page, _warning) = cdp::open_page_with_js(url, 1440, 900,
             args["pre_js"].as_str(),
-            args.get("wait_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+            args.get("wait_ms").and_then(serde_json::Value::as_u64).unwrap_or(0),
         ).await?;
         let result: String = page.evaluate(js).await.context("CDP evaluate failed")?.into_value()?;
         let dom: Value = serde_json::from_str(&result)?;

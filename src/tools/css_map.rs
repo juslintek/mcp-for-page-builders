@@ -49,7 +49,7 @@ impl Tool for CssToElementor {
     }
 }
 
-/// Core CSS→Elementor mapping logic, reusable from other tools (e.g. match_styles).
+/// Core CSS→Elementor mapping logic, reusable from other tools (e.g. `match_styles`).
 pub fn map_css_to_elementor(css: &Map<String, Value>) -> (Map<String, Value>, Vec<String>) {
     let mut out = Map::new();
     let mut unmapped = Vec::new();

@@ -16,7 +16,7 @@ use super::{cdp_screenshot, unix_timestamp};
 
 pub struct UiQualityAudit;
 
-const DISCOVER_SELECTORS_JS: &str = r#"
+const DISCOVER_SELECTORS_JS: &str = r"
 (()=> {
   const sels = new Set();
   const semantic = ['header', 'nav', 'main', 'footer', 'section', 'article', 'aside', 'h1', 'h2'];
@@ -44,7 +44,7 @@ const DISCOVER_SELECTORS_JS: &str = r#"
   }
   return JSON.stringify([...sels]);
 })()
-"#;
+";
 
 const ACCESSIBILITY_AUDIT_JS: &str = r#"
 (()=> {
@@ -183,6 +183,7 @@ impl Tool for UiQualityAudit {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let url = str_arg(&args, "url").ok_or_else(|| anyhow::anyhow!("url required"))?;
         let reference_url = str_arg(&args, "reference_url");
@@ -308,6 +309,7 @@ impl Tool for UiQualityAudit {
         let mut report = json!({
             "url": url,
             "target_screenshot": target_image_path.to_string_lossy().to_string(),
+            "target_file_url": format!("file://{}", target_image_path.to_string_lossy()),
             "reference_url": reference_url,
             "reference_screenshot": reference_path,
             "accessibility": accessibility,
@@ -315,6 +317,9 @@ impl Tool for UiQualityAudit {
             "lighthouse": lighthouse,
             "recommendations": recommendations,
         });
+        if let Some(ref ref_p) = reference_path {
+            report["reference_file_url"] = json!(format!("file://{ref_p}"));
+        }
         if !warnings.is_empty() {
             report["warnings"] = json!(warnings);
         }
@@ -322,14 +327,21 @@ impl Tool for UiQualityAudit {
         let mut content = vec![ToolContent::Text {
             text: serde_json::to_string_pretty(&report)?,
         }];
-        content.push(ToolContent::Image {
-            data: base64::engine::general_purpose::STANDARD.encode(&target_bytes),
-            mime_type: "image/png".to_string(),
-        });
-        if let Some(bytes) = reference_bytes {
+
+        let mut inline_budget = super::MAX_INLINE_JPEG_BYTES;
+        if target_bytes.len() <= inline_budget {
+            content.push(ToolContent::Image {
+                data: base64::engine::general_purpose::STANDARD.encode(&target_bytes),
+                mime_type: "image/jpeg".to_string(),
+            });
+            inline_budget = inline_budget.saturating_sub(target_bytes.len());
+        }
+        if let Some(bytes) = reference_bytes
+            && bytes.len() <= inline_budget
+        {
             content.push(ToolContent::Image {
                 data: base64::engine::general_purpose::STANDARD.encode(&bytes),
-                mime_type: "image/png".to_string(),
+                mime_type: "image/jpeg".to_string(),
             });
         }
 
@@ -353,9 +365,11 @@ async fn run_accessibility_audit(
         .context("Failed to decode accessibility audit result")?;
     let report: Value =
         serde_json::from_str(&payload).context("Failed to parse accessibility audit JSON")?;
+    let _ = page.close().await;
     Ok(report)
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_visual_mismatch_audit(
     url_a: &str,
     url_b: &str,
@@ -469,6 +483,9 @@ async fn run_visual_mismatch_audit(
         .iter()
         .filter(|value| value.get("severity").and_then(Value::as_str) == Some("medium"))
         .count();
+
+    let _ = page_a.close().await;
+    let _ = page_b.close().await;
 
     Ok(json!({
         "match_score": score,

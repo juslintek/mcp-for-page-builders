@@ -34,7 +34,7 @@ pub fn detect_env(url: &str) -> (EnvType, Option<String>) {
     }
 }
 
-/// Check if a URL is reachable. Returns Ok(status_code) or Err.
+/// Check if a URL is reachable. Returns `Ok(status_code)` or Err.
 pub async fn check_reachable(url: &str) -> Result<u16> {
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -74,11 +74,11 @@ async fn ddev_ensure(project: &str) -> Result<Vec<String>> {
                 let start = tokio::process::Command::new("ddev")
                     .args(["start", project])
                     .output().await?;
-                if !start.status.success() {
+                if start.status.success() {
+                    issues.push("DDEV project started successfully.".into());
+                } else {
                     let err = String::from_utf8_lossy(&start.stderr);
                     issues.push(format!("ddev start failed: {}", err.trim()));
-                } else {
-                    issues.push("DDEV project started successfully.".into());
                 }
             }
             // Project is running (OK)

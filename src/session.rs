@@ -37,21 +37,20 @@ impl Session {
         let journal_path = dir.join("journal.jsonl");
 
         // Check for existing lock
-        if let Ok(raw) = std::fs::read_to_string(&lock_path) {
-            if let Ok(lock) = serde_json::from_str::<LockFile>(&raw) {
-                // Check if that PID is still alive
-                let alive = std::process::Command::new("kill")
-                    .args(["-0", &lock.pid.to_string()])
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
-                if alive {
-                    warn!("Orphan MCP server (PID {}) detected — sending SIGTERM", lock.pid);
-                    let _ = std::process::Command::new("kill")
-                        .args(["-TERM", &lock.pid.to_string()])
-                        .output();
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                }
+        if let Ok(raw) = std::fs::read_to_string(&lock_path)
+            && let Ok(lock) = serde_json::from_str::<LockFile>(&raw)
+        {
+            // Check if that PID is still alive
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &lock.pid.to_string()])
+                .output()
+                .is_ok_and(|o| o.status.success());
+            if alive {
+                warn!("Orphan MCP server (PID {}) detected — sending SIGTERM", lock.pid);
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &lock.pid.to_string()])
+                    .output();
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
         }
 
@@ -74,10 +73,10 @@ impl Session {
             ts: now_secs(),
         };
         let id = entry.id.clone();
-        if let Ok(line) = serde_json::to_string(&entry) {
-            if let Err(e) = append_line(&self.journal_path, &line) {
-                warn!("Journal write failed: {e}");
-            }
+        if let Ok(line) = serde_json::to_string(&entry)
+            && let Err(e) = append_line(&self.journal_path, &line)
+        {
+            warn!("Journal write failed: {e}");
         }
         id
     }
@@ -97,9 +96,12 @@ impl Session {
     }
 
     pub fn recent_ops(&self, n: usize) -> Vec<JournalEntry> {
-        let all = read_journal(&self.journal_path);
-        let done: Vec<_> = all.into_iter().filter(|e| e.status == "done").collect();
-        done.into_iter().rev().take(n).collect()
+        read_journal(&self.journal_path)
+            .into_iter()
+            .filter(|e| e.status == "done")
+            .rev()
+            .take(n)
+            .collect()
     }
 }
 
@@ -110,7 +112,7 @@ impl Drop for Session {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn append_line(path: &PathBuf, line: &str) -> Result<()> {

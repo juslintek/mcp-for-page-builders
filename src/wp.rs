@@ -80,9 +80,10 @@ pub type SharedStore = Arc<RwLock<SiteStore>>;
 /// Notifications that tools can send to the main loop.
 #[derive(Debug)]
 pub enum ServerNotification {
-    /// WpClient should be rebuilt from the current active site in the store.
+    /// `WpClient` should be rebuilt from the current active site in the store.
     Reconfigure,
-    /// Tool list has changed — send notifications/tools/list_changed.
+    /// Tool list has changed — send `notifications/tools/list_changed`.
+    #[allow(dead_code)]
     ToolsChanged,
 }
 
@@ -94,6 +95,60 @@ pub struct WpClient {
     store: Option<SharedStore>,
     pub session: Option<Arc<crate::session::Session>>,
     notify_tx: Option<tokio::sync::mpsc::UnboundedSender<ServerNotification>>,
+}
+
+async fn parse_wp_response(resp: reqwest::Response, context_label: &str) -> Result<Value> {
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .with_context(|| format!("{context_label}: failed to read response body"))?;
+    let trimmed = text.trim();
+
+    if trimmed.is_empty() {
+        if status.is_success() {
+            return Ok(Value::Null);
+        }
+        anyhow::bail!("WP API {status}: empty response body");
+    }
+
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(json_val) => {
+            if !status.is_success() {
+                anyhow::bail!(
+                    "WP API {status}: {}",
+                    serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| trimmed.to_string())
+                );
+            }
+            Ok(json_val)
+        }
+        Err(json_err) => {
+            if let (Some(start), Some(end)) = (trimmed.find(['{', '[']), trimmed.rfind(['}', ']']))
+                && start < end
+                && let Ok(json_val) = serde_json::from_str::<Value>(&trimmed[start..=end])
+            {
+                if !status.is_success() {
+                    anyhow::bail!(
+                        "WP API {status}: {}",
+                        serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| trimmed.to_string())
+                    );
+                }
+                return Ok(json_val);
+            }
+
+            let snippet = if trimmed.len() > 300 {
+                format!("{}...", &trimmed[..300])
+            } else {
+                trimmed.to_string()
+            };
+
+            if !status.is_success() {
+                anyhow::bail!("WP API HTTP {status} (non-JSON response): {snippet}");
+            }
+
+            anyhow::bail!("{context_label}: error decoding response body ({json_err}): {snippet}");
+        }
+    }
 }
 
 impl WpClient {
@@ -115,11 +170,13 @@ impl WpClient {
         }
     }
 
+    #[must_use]
     pub fn with_store(mut self, store: SharedStore) -> Self {
         self.store = Some(store);
         self
     }
 
+    #[must_use]
     pub fn with_session(mut self, s: Arc<crate::session::Session>) -> Self {
         self.session = Some(s);
         self
@@ -145,10 +202,11 @@ impl WpClient {
         self.configured
     }
 
-    pub fn store(&self) -> Option<&SharedStore> {
+    pub const fn store(&self) -> Option<&SharedStore> {
         self.store.as_ref()
     }
 
+    #[must_use]
     pub fn with_notifier(mut self, tx: tokio::sync::mpsc::UnboundedSender<ServerNotification>) -> Self {
         self.notify_tx = Some(tx);
         self
@@ -193,12 +251,7 @@ impl WpClient {
         let resp = self.http.get(self.url(path))
             .header(AUTHORIZATION, &self.auth)
             .send().await.context("WP GET request failed")?;
-        let status = resp.status();
-        let body: Value = resp.json().await.context("WP GET parse failed")?;
-        if !status.is_success() {
-            anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&body)?);
-        }
-        Ok(body)
+        parse_wp_response(resp, "WP GET parse failed").await
     }
 
     pub async fn post(&self, path: &str, body: &Value) -> Result<Value> {
@@ -208,14 +261,10 @@ impl WpClient {
             .header(CONTENT_TYPE, "application/json")
             .json(body)
             .send().await.context("WP POST request failed")?;
-        let status = resp.status();
-        let result: Value = resp.json().await.context("WP POST parse failed")?;
-        if !status.is_success() {
-            anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&result)?);
-        }
-        Ok(result)
+        parse_wp_response(resp, "WP POST parse failed").await
     }
 
+    #[allow(dead_code)]
     pub async fn put(&self, path: &str, body: &Value) -> Result<Value> {
         self.require_configured()?;
         let resp = self.http.put(self.url(path))
@@ -223,12 +272,7 @@ impl WpClient {
             .header(CONTENT_TYPE, "application/json")
             .json(body)
             .send().await.context("WP PUT request failed")?;
-        let status = resp.status();
-        let result: Value = resp.json().await.context("WP PUT parse failed")?;
-        if !status.is_success() {
-            anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&result)?);
-        }
-        Ok(result)
+        parse_wp_response(resp, "WP PUT parse failed").await
     }
 
     pub async fn delete(&self, path: &str) -> Result<Value> {
@@ -236,12 +280,7 @@ impl WpClient {
         let resp = self.http.delete(self.url(path))
             .header(AUTHORIZATION, &self.auth)
             .send().await.context("WP DELETE request failed")?;
-        let status = resp.status();
-        let body: Value = resp.json().await.context("WP DELETE parse failed")?;
-        if !status.is_success() {
-            anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&body)?);
-        }
-        Ok(body)
+        parse_wp_response(resp, "WP DELETE parse failed").await
     }
 
     pub async fn post_multipart(&self, path: &str, form: reqwest::multipart::Form) -> Result<Value> {
@@ -250,12 +289,7 @@ impl WpClient {
             .header(AUTHORIZATION, &self.auth)
             .multipart(form)
             .send().await.context("WP multipart POST failed")?;
-        let status = resp.status();
-        let result: Value = resp.json().await.context("WP multipart parse failed")?;
-        if !status.is_success() {
-            anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&result)?);
-        }
-        Ok(result)
+        parse_wp_response(resp, "WP multipart parse failed").await
     }
 
     pub async fn request(&self, method: &str, path: &str, body: Option<&Value>, query: Option<&Value>) -> Result<Value> {
@@ -270,24 +304,20 @@ impl WpClient {
             other => anyhow::bail!("Unsupported HTTP method: {other}"),
         };
         req = req.header(AUTHORIZATION, &self.auth);
-        if let Some(q) = query {
-            if let Some(obj) = q.as_object() {
-                let pairs: Vec<(String, String)> = obj.iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), String::from)))
-                    .collect();
-                req = req.query(&pairs);
-            }
+        if let Some(q) = query
+            && let Some(obj) = q.as_object()
+        {
+            let pairs: Vec<(String, String)> = obj
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), String::from)))
+                .collect();
+            req = req.query(&pairs);
         }
         if let Some(b) = body {
             req = req.header(CONTENT_TYPE, "application/json").json(b);
         }
         let resp = req.send().await.context("WP request failed")?;
-        let status = resp.status();
-        let result: Value = resp.json().await.context("WP response parse failed")?;
-        if !status.is_success() {
-            anyhow::bail!("WP API {status}: {}", serde_json::to_string_pretty(&result)?);
-        }
-        Ok(result)
+        parse_wp_response(resp, "WP response parse failed").await
     }
 
     /// Clear Elementor CSS cache. Ignores errors — endpoint may not exist on older versions.

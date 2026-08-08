@@ -23,6 +23,7 @@ pub mod site;
 pub mod wp_api;
 pub mod media;
 pub mod session_state;
+pub mod wp7_mcp;
 
 pub use crate::types::Tool;
 
@@ -107,5 +108,15 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(media::UploadMedia),
         // Session
         Box::new(session_state::GetSessionState),
+        // Shadow Realm Multiverse
+        Box::new(crate::shadow_realm::ShadowSpawn),
+        Box::new(crate::shadow_realm::ShadowFork),
+        Box::new(crate::shadow_realm::ShadowList),
+        Box::new(crate::shadow_realm::ShadowPromote),
+        Box::new(crate::shadow_realm::ShadowPortalInfo),
+        // WordPress 7 MCP Features
+        Box::new(wp7_mcp::Wp7McpCapabilities),
+        Box::new(wp7_mcp::Wp7TemplateParts),
+        Box::new(wp7_mcp::Wp7BlockRender),
     ]
 }

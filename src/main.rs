@@ -1,3 +1,12 @@
+#![allow(
+    clippy::too_many_lines,
+    clippy::missing_const_for_fn,
+    clippy::return_self_not_must_use,
+    clippy::if_not_else,
+    clippy::map_unwrap_or,
+    clippy::type_complexity
+)]
+
 mod args;
 mod types;
 mod util;
@@ -9,6 +18,7 @@ mod setup;
 mod session;
 mod logging;
 pub mod cdp;
+pub mod shadow_realm;
 
 use anyhow::Result;
 use futures::FutureExt;
@@ -179,7 +189,10 @@ async fn handle(
                 Some(t) => {
                     info!("Calling tool: {name}");
                     match t.run(args, wp).await {
-                        Ok(result) => Response::ok(id, serde_json::to_value(result).unwrap()),
+                        Ok(result) => match serde_json::to_value(result) {
+                            Ok(v) => Response::ok(id, v),
+                            Err(e) => Response::err(id, -32603, format!("Serialization error: {e}")),
+                        },
                         Err(e) => {
                             let msg = format!("{e:#}");
                             let result = if let Some(root) = crate::util::dev_project_root() {
@@ -197,7 +210,10 @@ async fn handle(
                             } else {
                                 mcp::ToolResult::error(msg)
                             };
-                            Response::ok(id, serde_json::to_value(result).unwrap())
+                            match serde_json::to_value(result) {
+                                Ok(v) => Response::ok(id, v),
+                                Err(ser_err) => Response::err(id, -32603, format!("Serialization error: {ser_err}")),
+                            }
                         }
                     }
                 }

@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    },
+    "mcp-for-page-builders": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release",
+        "--"
+      ]
+    }
+  }
+}

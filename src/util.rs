@@ -75,9 +75,7 @@ pub fn dev_project_root() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let path = exe.to_str()?;
     // Match .../target/release/binary or .../target/debug/binary
-    if let Some(idx) = path.find("/target/release/").or_else(|| path.find("/target/debug/")) {
-        Some(PathBuf::from(&path[..idx]))
-    } else {
-        None
-    }
+    path.find("/target/release/")
+        .or_else(|| path.find("/target/debug/"))
+        .map(|idx| PathBuf::from(&path[..idx]))
 }

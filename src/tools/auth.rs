@@ -72,11 +72,13 @@ impl Tool for Authenticate {
         let tunnel_holder: Arc<tokio::sync::Mutex<String>> = Arc::new(tokio::sync::Mutex::new(String::new()));
         let tunnel_holder2 = tunnel_holder.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-            rt.block_on(async {
-                let listener = TcpListener::from_std(std_listener).unwrap();
-                serve(listener, tunnel_holder2, preset_clone, result2, done2).await;
-            });
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(async {
+                    if let Ok(listener) = TcpListener::from_std(std_listener) {
+                        serve(listener, tunnel_holder2, preset_clone, result2, done2).await;
+                    }
+                });
+            }
         });
         eprintln!("[auth] Step 2/5: HTTP server thread spawned, starting tunnel...");
 
@@ -140,6 +142,7 @@ fn start_tunnel(port: u16) -> Result<String> {
     cleanup_stale_tunnels();
 
     // Try each provider with retries
+    #[allow(clippy::type_complexity)]
     let providers: Vec<(&str, fn(u16) -> Result<String>)> = vec![
         ("cloudflared", try_cloudflared as fn(u16) -> Result<String>),
         ("ngrok", try_ngrok as fn(u16) -> Result<String>),
@@ -200,7 +203,7 @@ fn save_tunnel_state(provider: &str, url: &str, port: u16) {
         "url": url,
         "port": port,
         "pid": std::process::id(),
-        "ts": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "ts": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
     });
     let _ = std::fs::write(tunnel_state_path(), serde_json::to_string_pretty(&state).unwrap_or_default());
 }
@@ -210,7 +213,7 @@ fn load_existing_tunnel() -> Option<String> {
     let state: serde_json::Value = serde_json::from_str(&data).ok()?;
     let url = state["url"].as_str()?.to_string();
     let ts = state["ts"].as_u64().unwrap_or(0);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     if now - ts > 3600 {
         let _ = std::fs::remove_file(tunnel_state_path());
         return None;
@@ -258,7 +261,8 @@ fn try_cloudflared(port: u16) -> Result<String> {
         .stdout(Stdio::null()).stderr(Stdio::piped())
         .spawn()?;
 
-    let reader = BufReader::new(child.stderr.take().unwrap());
+    let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("cloudflared stderr capture failed"))?;
+    let reader = BufReader::new(stderr);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut url = None;
 
@@ -269,9 +273,11 @@ fn try_cloudflared(port: u16) -> Result<String> {
             url = extract_https_url(&line, "trycloudflare.com");
         }
         // Once we have URL and connection is registered, we're good
-        if url.is_some() && line.contains("Registered tunnel connection") {
+        if let Some(ref u) = url
+            && line.contains("Registered tunnel connection")
+        {
             std::mem::forget(child);
-            return Ok(url.unwrap());
+            return Ok(u.clone());
         }
     }
     let _ = child.kill();
@@ -302,12 +308,11 @@ fn try_ngrok(port: u16) -> Result<String> {
                 .output()
             {
                 let body = String::from_utf8_lossy(&resp.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                    if let Some(url) = json["tunnels"][0]["public_url"].as_str() {
-                        if url.starts_with("https://") {
-                            return Ok(url.to_string());
-                        }
-                    }
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body)
+                    && let Some(url) = json["tunnels"][0]["public_url"].as_str()
+                    && url.starts_with("https://")
+                {
+                    return Ok(url.to_string());
                 }
             }
         }
@@ -324,7 +329,8 @@ fn try_localhost_run(port: u16) -> Result<String> {
         .stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn()?;
 
-    let reader = BufReader::new(child.stdout.take().unwrap());
+    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("localhost.run stdout capture failed"))?;
+    let reader = BufReader::new(stdout);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
 
     for line in reader.lines() {

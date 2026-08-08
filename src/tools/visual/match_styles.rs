@@ -47,7 +47,7 @@ impl Tool for MatchStyles {
         let ref_sel = str_arg(&args, "reference_selector").ok_or_else(|| anyhow::anyhow!("reference_selector required"))?;
         let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
         let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
-        let verify = args.get("verify").and_then(|v| v.as_bool()).unwrap_or(false);
+        let verify = args.get("verify").and_then(Value::as_bool).unwrap_or(false);
 
         // 1. Extract computed styles from reference
         let props_js = EXTRACT_JS_PROPS.iter().map(|p| format!("'{p}'")).collect::<Vec<_>>().join(",");

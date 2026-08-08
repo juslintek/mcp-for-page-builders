@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -60,7 +61,7 @@ impl Tool for ExtractStyles {
             anyhow::bail!("Style extraction failed: {}", err.as_str().unwrap_or("unknown"));
         }
         let mut text = serde_json::to_string_pretty(&val)?;
-        if let Some(w) = warning { text.push_str(&format!("\n⚠ {w}")); }
+        if let Some(w) = warning { let _ = write!(text, "\n⚠ {w}"); }
         Ok(ToolResult::text(text))
     }
 }

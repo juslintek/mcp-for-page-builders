@@ -11,3 +11,8 @@ pub fn u64_arg(args: &Value, key: &str) -> Option<u64> {
 pub fn usize_arg(args: &Value, key: &str) -> Option<usize> {
     args.get(key)?.as_u64().map(|v| usize::try_from(v).unwrap_or(usize::MAX))
 }
+
+pub fn bool_arg(args: &Value, key: &str) -> Option<bool> {
+    args.get(key)?.as_bool()
+}
+

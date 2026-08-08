@@ -29,11 +29,10 @@ impl Tool for InstallBridge {
             return Ok(ToolResult::text(format!("Bridge installed from wordpress.org ({BRIDGE_SLUG})")));
         }
 
-        // Already uploaded but inactive?
-        if activate_bridge_via_rest(wp).await.is_ok() {
-            if wp.get("mcp-for-page-builders/v1/status").await.is_ok() {
-                return Ok(ToolResult::text("Bridge was inactive — activated successfully.".to_string()));
-            }
+        if activate_bridge_via_rest(wp).await.is_ok()
+            && wp.get("mcp-for-page-builders/v1/status").await.is_ok()
+        {
+            return Ok(ToolResult::text("Bridge was inactive — activated successfully.".to_string()));
         }
 
         // Bootstrap via Code Snippets: install snippets plugin, create snippet that
@@ -53,7 +52,7 @@ impl Tool for InstallBridge {
     }
 }
 
-const BRIDGE_MU_PHP: &str = r#"<?php
+const BRIDGE_MU_PHP: &str = r"<?php
 /*
 Plugin Name: MCP Bridge (mu-plugin)
 Description: REST endpoints for MCP-driven file deployment and option management
@@ -136,7 +135,7 @@ add_action('rest_api_init', function() {
         },
         'permission_callback' => $admin,
     ]);
-});"#;
+});";
 
 async fn activate_bridge_via_rest(wp: &WpClient) -> Result<()> {
     wp.request("PUT", "wp/v2/plugins/mcp-bridge-for-page-builders/mcp-bridge-for-page-builders",

@@ -31,7 +31,7 @@ pub fn init() -> anyhow::Result<WorkerGuard> {
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "mcp_for_page_builders=info".parse().unwrap());
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("mcp_for_page_builders=info"));
 
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)

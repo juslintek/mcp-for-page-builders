@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -60,7 +61,7 @@ impl Tool for InspectPage {
 
         let (page, warning) = cdp::open_page_with_js(url, 1440, 900,
             args["pre_js"].as_str(),
-            args.get("wait_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+            args.get("wait_ms").and_then(Value::as_u64).unwrap_or(0),
         ).await?;
         let result: String = page.evaluate(js).await
             .context("CDP evaluate failed")?
@@ -72,7 +73,7 @@ impl Tool for InspectPage {
             anyhow::bail!("{}", err.as_str().unwrap_or("unknown error"));
         }
         let mut text = serde_json::to_string_pretty(&val)?;
-        if let Some(w) = warning { text.push_str(&format!("\n⚠ {w}")); }
+        if let Some(w) = warning { let _ = write!(text, "\n⚠ {w}"); }
         Ok(ToolResult::text(text))
     }
 }

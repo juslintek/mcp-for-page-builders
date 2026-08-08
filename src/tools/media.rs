@@ -33,7 +33,7 @@ impl Tool for UploadMedia {
             let data = tokio::fs::read(path).await?;
             let name = std::path::Path::new(path)
                 .file_name()
-                .map_or("upload".to_string(), |n| n.to_string_lossy().to_string());
+                .map_or_else(|| "upload".to_string(), |n| n.to_string_lossy().to_string());
             (data, name)
         } else if let Some(b64) = args.get("file_data").and_then(Value::as_str) {
             let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)?;

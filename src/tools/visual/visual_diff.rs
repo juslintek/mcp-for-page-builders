@@ -40,7 +40,7 @@ impl Tool for VisualDiff {
 
         let pre_js_a = str_arg(&args, "pre_js_a");
         let pre_js_b = str_arg(&args, "pre_js_b");
-        let wait_ms = args.get("wait_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+        let wait_ms = args.get("wait_ms").and_then(Value::as_u64).unwrap_or(0);
 
         let (page_a, warn_a) = cdp::open_page_with_js(&url_a, 1440, 900, pre_js_a.as_deref(), wait_ms).await?;
         let (page_b, warn_b) = cdp::open_page_with_js(&url_b, 1440, 900, pre_js_b.as_deref(), wait_ms).await?;
