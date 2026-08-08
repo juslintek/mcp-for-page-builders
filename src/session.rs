@@ -32,29 +32,35 @@ pub struct Session {
 impl Session {
     pub fn acquire() -> Result<Self> {
         let dir = config_dir();
-        std::fs::create_dir_all(&dir)?;
-        let lock_path = dir.join("session.lock");
+        let sessions_dir = dir.join("sessions");
+        std::fs::create_dir_all(&sessions_dir)?;
         let journal_path = dir.join("journal.jsonl");
 
-        // Check for existing lock
-        if let Ok(raw) = std::fs::read_to_string(&lock_path)
-            && let Ok(lock) = serde_json::from_str::<LockFile>(&raw)
-        {
-            // Check if that PID is still alive
-            let alive = std::process::Command::new("kill")
-                .args(["-0", &lock.pid.to_string()])
-                .output()
-                .is_ok_and(|o| o.status.success());
-            if alive {
-                warn!("Orphan MCP server (PID {}) detected — sending SIGTERM", lock.pid);
-                let _ = std::process::Command::new("kill")
-                    .args(["-TERM", &lock.pid.to_string()])
-                    .output();
-                std::thread::sleep(std::time::Duration::from_secs(2));
+        let pid = std::process::id();
+        let lock_path = sessions_dir.join(format!("session-{pid}.lock"));
+
+        // Sweep stale lock files from dead processes (never kill active processes)
+        if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "lock")
+                    && let Ok(raw) = std::fs::read_to_string(&path)
+                    && let Ok(lock) = serde_json::from_str::<LockFile>(&raw)
+                {
+                    if lock.pid == pid {
+                        continue;
+                    }
+                    let alive = std::process::Command::new("kill")
+                        .args(["-0", &lock.pid.to_string()])
+                        .output()
+                        .is_ok_and(|o| o.status.success());
+                    if !alive {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
             }
         }
 
-        let pid = std::process::id();
         let started_at = now_secs();
         let lock = LockFile { pid, started_at };
         std::fs::write(&lock_path, serde_json::to_string(&lock)?)?;
