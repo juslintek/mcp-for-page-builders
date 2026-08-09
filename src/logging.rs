@@ -33,9 +33,16 @@ pub fn init() -> anyhow::Result<WorkerGuard> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("mcp_for_page_builders=info"));
 
-    let stderr_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_target(false);
+    let enable_stderr = std::env::var("MCP_STDERR_LOG").is_ok();
+    let stderr_layer = if enable_stderr {
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_target(false),
+        )
+    } else {
+        None
+    };
 
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(file_writer)

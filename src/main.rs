@@ -70,11 +70,11 @@ async fn main() -> Result<()> {
         Ok(s) => {
             let pending = s.pending_ops();
             if !pending.is_empty() {
-                eprintln!("⚠ {} pending op(s) from previous session — call get_session_state for details", pending.len());
+                tracing::warn!("{} pending op(s) from previous session — call get_session_state for details", pending.len());
             }
             Some(std::sync::Arc::new(s))
         }
-        Err(e) => { eprintln!("Session acquire failed (non-fatal): {e}"); None }
+        Err(e) => { tracing::warn!("Session acquire failed (non-fatal): {e}"); None }
     };
 
     let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel::<crate::wp::ServerNotification>();
@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
         let client = if let Some(creds) = s.get_active() {
             WpClient::from_creds(creds).with_store(store.clone())
         } else {
-            eprintln!("No active site — starting in CDP-only mode. WordPress tools will prompt for setup.");
+            tracing::info!("No active site — starting in CDP-only mode. WordPress tools will prompt for setup.");
             WpClient::unconfigured().with_store(store.clone())
         };
         let client = client.with_notifier(notify_tx);
