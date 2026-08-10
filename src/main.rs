@@ -178,7 +178,18 @@ async fn handle(
         "tools/list" => {
             let defs: Vec<_> = tools.iter().map(|t| {
                 let d = t.def();
-                json!({"name": d.name, "description": d.description, "inputSchema": d.input_schema})
+                let mut schema = d.input_schema.clone();
+                if !schema.is_object() {
+                    schema = json!({"type": "object", "properties": {}});
+                } else if let Some(obj) = schema.as_object_mut() {
+                    if !obj.contains_key("type") {
+                        obj.insert("type".to_string(), json!("object"));
+                    }
+                    if !obj.contains_key("properties") {
+                        obj.insert("properties".to_string(), json!({}));
+                    }
+                }
+                json!({"name": d.name, "description": d.description, "inputSchema": schema})
             }).collect();
             Response::ok(id, json!({"tools": defs}))
         }

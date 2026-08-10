@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-09T20:56:56.738Z._
+_Auto-generated. Last updated 2026-08-10T16:57:27.545Z._
 
 - [chrome-cdp-pid-scoped-profiles](pages/chrome-cdp-pid-scoped-profiles.md) — category: decision | **Bug that was fixed (per commit `08404c3 fix: PID-scope Chrome CDP profile dir to eliminate concurrent-instance race`):** earlier, all serv
 - [install-config-real-writes-vs-printed-snippets](pages/install-config-real-writes-vs-printed-snippets.md) — category: reference | `install_config` detects the calling host (`detect_host()`) via env vars and config-file presence, then behaves differently per host — **onl

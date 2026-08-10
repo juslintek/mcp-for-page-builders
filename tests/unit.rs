@@ -170,3 +170,23 @@ async fn shadow_realm_spawn_and_fork() {
     assert_eq!(list.len(), 2);
 }
 
+#[test]
+fn test_all_tool_schemas_valid_for_bedrock() {
+    let tools = mcp_for_page_builders::tools::all_tools();
+    for tool in &tools {
+        let def = tool.def();
+        let schema = &def.input_schema;
+        assert_eq!(
+            schema.get("type").and_then(|v| v.as_str()),
+            Some("object"),
+            "Tool '{}' input_schema must have \"type\": \"object\"",
+            def.name
+        );
+        assert!(
+            schema.get("properties").is_some_and(serde_json::Value::is_object),
+            "Tool '{}' input_schema must have \"properties\": {{...}} object",
+            def.name
+        );
+    }
+}
+
