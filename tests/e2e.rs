@@ -8,14 +8,14 @@ use mcp_for_page_builders::wp::WpClient;
 use helpers::*;
 use serde_json::json;
 
-fn wp() -> Option<WpClient> {
-    let url = std::env::var("WP_TEST_URL").ok()?;
+fn wp() -> WpClient {
+    let url = std::env::var("WP_TEST_URL").expect("WP_TEST_URL must be set for E2E tests");
     let user = std::env::var("WP_TEST_USER").unwrap_or_else(|_| "admin".into());
-    let pass = std::env::var("WP_TEST_PASS").ok()?;
-    Some(WpClient::new(&url, &user, &pass))
+    let pass = std::env::var("WP_TEST_PASS").expect("WP_TEST_PASS must be set for E2E tests");
+    WpClient::new(&url, &user, &pass)
 }
 
-macro_rules! require_wp { () => { match wp() { Some(c) => c, None => { eprintln!("Skip: WP_TEST_URL not set"); return; } } }; }
+macro_rules! require_wp { () => { wp() }; }
 
 /// Create a page, verify element count, return page ID for cleanup.
 async fn create_and_verify(wp: &WpClient, title: &str, elements: Vec<Element>, expected_count: usize) -> u64 {

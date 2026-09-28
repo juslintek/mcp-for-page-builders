@@ -49,7 +49,7 @@ fn binary_path() -> String {
 fn detect_host() -> Host {
     // Kiro: KIRO_AGENT_PATH or kiro-gateway API key
     if std::env::var("KIRO_AGENT_PATH").is_ok() { return Host::Kiro; }
-    if std::env::var("ANTHROPIC_API_KEY").ok().is_some_and(|k| k.starts_with("kiro-gateway")) {
+    if std::env::var("ANTHROPIC_API_KEY").is_ok_and(|k| k.starts_with("kiro-gateway")) {
         return Host::Kiro;
     }
     // Claude Code: CLAUDE_CODE env or claude binary in parent

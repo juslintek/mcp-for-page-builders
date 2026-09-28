@@ -7,14 +7,25 @@ use mcp_for_page_builders::tools::Tool;
 use serde_json::json;
 use std::collections::HashMap;
 
-fn wp() -> Option<WpClient> {
-    let url = std::env::var("WP_TEST_URL").ok()?;
+fn wp() -> WpClient {
+    let url = std::env::var("WP_TEST_URL")
+        .expect("WP_TEST_URL must be set for integration tests");
     let user = std::env::var("WP_TEST_USER").unwrap_or_else(|_| "admin".into());
-    let pass = std::env::var("WP_TEST_PASS").ok()?;
-    Some(WpClient::new(&url, &user, &pass))
+    let pass = std::env::var("WP_TEST_PASS")
+        .expect("WP_TEST_PASS must be set for integration tests");
+    WpClient::new(&url, &user, &pass)
 }
 
-macro_rules! require_wp { () => { match wp() { Some(c) => c, None => { eprintln!("Skip: WP_TEST_URL not set"); return; } } }; }
+fn wp_test_url() -> String {
+    format!(
+        "{}/",
+        std::env::var("WP_TEST_URL")
+            .expect("WP_TEST_URL must be set when WordPress integration tests run")
+            .trim_end_matches('/')
+    )
+}
+
+macro_rules! require_wp { () => { wp() }; }
 
 fn make_element(wt: &str, settings: serde_json::Value) -> Element {
     Element {
@@ -424,17 +435,15 @@ async fn tool_get_experiments() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn tool_screenshot_no_chrome() {
-    // Visual tools should return an error message, not panic, when Chrome is missing
+async fn tool_screenshot() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::Screenshot;
-    let result = tool.run(json!({"url": "http://localhost:18095/"}), &wp).await;
-    // Either succeeds (Chrome found) or returns error (Chrome not found) — both OK
+    let result = tool.run(json!({"url": wp_test_url()}), &wp).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
-async fn tool_screenshot_page_no_chrome() {
+async fn tool_screenshot_page() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::ScreenshotPage;
     let result = tool.run(json!({"page_id": 2}), &wp).await;
@@ -442,18 +451,19 @@ async fn tool_screenshot_page_no_chrome() {
 }
 
 #[tokio::test]
-async fn tool_visual_compare_no_chrome() {
+async fn tool_visual_compare() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::VisualCompare;
-    let result = tool.run(json!({"url_a": "http://localhost:18095/", "url_b": "http://localhost:18095/"}), &wp).await;
+    let url = wp_test_url();
+    let result = tool.run(json!({"url_a": url, "url_b": url}), &wp).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
-async fn tool_ui_quality_audit_no_chrome() {
+async fn tool_ui_quality_audit() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::UiQualityAudit;
-    let result = tool.run(json!({"url": "http://localhost:18095/"}), &wp).await;
+    let result = tool.run(json!({"url": wp_test_url()}), &wp).await;
     assert!(result.is_ok());
 }
 
