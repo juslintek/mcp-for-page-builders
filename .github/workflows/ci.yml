@@ -34,6 +34,21 @@ jobs:
             -e WP_ADMIN_PASS=admin \
             juslintek/wp-sqlite-elementor-server:latest
 
+      - name: Disable automatic WordPress updates
+        run: |
+          for i in $(seq 1 60); do
+            if docker exec wp-test test -s /wp/app-password.txt; then break; fi
+            sleep 1
+          done
+          docker exec wp-test test -s /wp/app-password.txt
+          docker exec -i wp-test sh -c 'cat > /wp/wp-content/mu-plugins/ci-disable-auto-updates.php' <<'PHP'
+          <?php
+          add_filter('automatic_updater_disabled', '__return_true');
+          add_filter('auto_update_core', '__return_false');
+          add_filter('auto_update_plugin', '__return_false');
+          add_filter('auto_update_theme', '__return_false');
+          PHP
+
       - name: Wait for WordPress
         run: |
           for i in $(seq 1 60); do

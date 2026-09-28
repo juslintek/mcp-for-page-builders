@@ -14,6 +14,15 @@ fn wp() -> Option<WpClient> {
     Some(WpClient::new(&url, &user, &pass))
 }
 
+fn wp_test_url() -> String {
+    format!(
+        "{}/",
+        std::env::var("WP_TEST_URL")
+            .expect("WP_TEST_URL must be set when WordPress integration tests run")
+            .trim_end_matches('/')
+    )
+}
+
 macro_rules! require_wp { () => { match wp() { Some(c) => c, None => { eprintln!("Skip: WP_TEST_URL not set"); return; } } }; }
 
 fn make_element(wt: &str, settings: serde_json::Value) -> Element {
@@ -428,7 +437,7 @@ async fn tool_screenshot_no_chrome() {
     // Visual tools should return an error message, not panic, when Chrome is missing
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::Screenshot;
-    let result = tool.run(json!({"url": "http://localhost:18095/"}), &wp).await;
+    let result = tool.run(json!({"url": wp_test_url()}), &wp).await;
     // Either succeeds (Chrome found) or returns error (Chrome not found) — both OK
     assert!(result.is_ok());
 }
@@ -445,7 +454,8 @@ async fn tool_screenshot_page_no_chrome() {
 async fn tool_visual_compare_no_chrome() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::VisualCompare;
-    let result = tool.run(json!({"url_a": "http://localhost:18095/", "url_b": "http://localhost:18095/"}), &wp).await;
+    let url = wp_test_url();
+    let result = tool.run(json!({"url_a": url, "url_b": url}), &wp).await;
     assert!(result.is_ok());
 }
 
@@ -453,7 +463,7 @@ async fn tool_visual_compare_no_chrome() {
 async fn tool_ui_quality_audit_no_chrome() {
     let wp = require_wp!();
     let tool = mcp_for_page_builders::tools::visual::UiQualityAudit;
-    let result = tool.run(json!({"url": "http://localhost:18095/"}), &wp).await;
+    let result = tool.run(json!({"url": wp_test_url()}), &wp).await;
     assert!(result.is_ok());
 }
 
