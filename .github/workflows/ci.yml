@@ -59,7 +59,8 @@ jobs:
 
       - name: Read app password
         run: |
-          APP_PASS=$(docker exec wp-test /bin/sh -c "cat /wp/app-password.txt")
+          APP_PASS=$(docker exec wp-test /bin/sh -c "head -n 1 /wp/app-password.txt")
+          test -n "$APP_PASS"
           echo "WP_TEST_PASS=$APP_PASS" >> $GITHUB_ENV
 
       - name: Integration tests (all tools)
