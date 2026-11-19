@@ -1,12 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::args::{str_arg, u64_arg, usize_arg};
 use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct MoveElement;
 
@@ -18,9 +18,10 @@ impl Tool for MoveElement {
             description: "Move an element to a different parent and/or position within the page.",
             input_schema: json!({
                 "type": "object",
-                "required": ["page_id", "element_id"],
+                "required": ["page_id", "expected_revision", "element_id"],
                 "properties": {
                     "page_id": { "type": "integer" },
+                    "expected_revision": { "type": "string", "description": "Revision returned by get_element_tree" },
                     "element_id": { "type": "string", "description": "Element to move" },
                     "target_parent_id": { "type": "string", "description": "New parent ID. Omit for root level." },
                     "position": { "type": "integer", "description": "Index in new parent. Defaults to end." }
@@ -30,22 +31,35 @@ impl Tool for MoveElement {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
-        let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
+        let page_id =
+            u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
+        let eid =
+            str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
         let target = str_arg(&args, "target_parent_id");
         let position = usize_arg(&args, "position").unwrap_or(usize::MAX);
 
+        let expected_revision =
+            crate::args::str_arg(&args, "expected_revision").ok_or_else(|| {
+                anyhow::anyhow!("expected_revision required; read the page tree first")
+            })?;
         let svc = ElementorService::new(wp);
         let mut tree = svc.get_tree(page_id).await?;
+        ElementorService::require_revision(&tree, &expected_revision)?;
 
-        let el = tree.remove(&eid)
+        let el = tree
+            .remove(&eid)
             .ok_or_else(|| anyhow::anyhow!("Element {eid} not found"))?;
 
         if !tree.insert(target.as_deref(), position, el) {
-            return Ok(ToolResult::error(format!("Target parent {} not found", target.unwrap_or_default())));
+            return Ok(ToolResult::error(format!(
+                "Target parent {} not found",
+                target.unwrap_or_default()
+            )));
         }
 
         svc.save_tree(page_id, &tree).await?;
-        Ok(ToolResult::text(format!("Moved element {eid} on page {page_id}")))
+        Ok(ToolResult::text(format!(
+            "Moved element {eid} on page {page_id}"
+        )))
     }
 }

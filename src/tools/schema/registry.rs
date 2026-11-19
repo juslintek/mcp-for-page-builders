@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use super::widget_schema::{WidgetSchema, all_schemas, COMMON_SETTINGS, TYPOGRAPHY_KEYS, COMMON_ALIASES};
+use super::widget_schema::{
+    COMMON_ALIASES, COMMON_SETTINGS, TYPOGRAPHY_KEYS, WidgetSchema, all_schemas,
+};
 
 static REGISTRY: OnceLock<SchemaRegistry> = OnceLock::new();
 
@@ -35,10 +37,24 @@ impl SchemaRegistry {
         keys.extend_from_slice(COMMON_SETTINGS);
         #[allow(clippy::items_after_statements)]
         const TEXT_WIDGETS: &[&str] = &[
-            "heading", "text-editor", "button", "icon-box", "image-box",
-            "counter", "progress-bar", "testimonial", "alert", "star-rating", "icon-list",
-            "animated-headline", "blockquote", "call-to-action", "flip-box",
-            "price-table", "table-of-contents", "form",
+            "heading",
+            "text-editor",
+            "button",
+            "icon-box",
+            "image-box",
+            "counter",
+            "progress-bar",
+            "testimonial",
+            "alert",
+            "star-rating",
+            "icon-list",
+            "animated-headline",
+            "blockquote",
+            "call-to-action",
+            "flip-box",
+            "price-table",
+            "table-of-contents",
+            "form",
         ];
         if TEXT_WIDGETS.contains(&schema.widget_type) {
             keys.extend_from_slice(TYPOGRAPHY_KEYS);
@@ -58,6 +74,9 @@ impl SchemaRegistry {
             }
         }
         let valid = self.valid_keys(schema);
-        valid.iter().find(|v| v.contains(key) || key.contains(*v)).map(std::string::ToString::to_string)
+        valid
+            .iter()
+            .find(|v| v.contains(key) || key.contains(*v))
+            .map(std::string::ToString::to_string)
     }
 }

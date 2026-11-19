@@ -53,7 +53,9 @@ fn survives_blank_lines_and_malformed_json() {
         "not valid json at all",
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
     );
-    stdin.write_all(payload.as_bytes()).expect("write to child stdin");
+    stdin
+        .write_all(payload.as_bytes())
+        .expect("write to child stdin");
     stdin.flush().expect("flush child stdin");
 
     // Read exactly two non-blank response lines. `read_line` is a blocking
@@ -67,7 +69,9 @@ fn survives_blank_lines_and_malformed_json() {
         let mut responses: Vec<String> = Vec::new();
         while responses.len() < 2 {
             let mut line = String::new();
-            let Ok(n) = reader.read_line(&mut line) else { break };
+            let Ok(n) = reader.read_line(&mut line) else {
+                break;
+            };
             if n == 0 {
                 break; // EOF
             }
@@ -79,9 +83,7 @@ fn survives_blank_lines_and_malformed_json() {
         let _ = tx.send(responses);
     });
 
-    let responses = rx
-        .recv_timeout(Duration::from_secs(10))
-        .unwrap_or_default();
+    let responses = rx.recv_timeout(Duration::from_secs(10)).unwrap_or_default();
 
     drop(stdin);
     let _ = child.kill();
@@ -156,5 +158,8 @@ fn malformed_line_is_logged_to_file() {
     let _ = child.kill();
     let _ = child.wait();
 
-    assert!(found, "expected the malformed-line error to be recorded in the log file within 10s");
+    assert!(
+        found,
+        "expected the malformed-line error to be recorded in the log file within 10s"
+    );
 }

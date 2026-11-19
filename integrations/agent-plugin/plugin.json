@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mcp-for-page-builders",
+  "version": "0.2.0",
+  "description": "Local MCP server for WordPress page builders."
+}

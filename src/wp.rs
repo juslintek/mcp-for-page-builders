@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::util::config_dir;
@@ -130,7 +131,8 @@ async fn parse_wp_response(resp: reqwest::Response, context_label: &str) -> Resu
                 if !status.is_success() {
                     anyhow::bail!(
                         "WP API {status}: {}",
-                        serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| trimmed.to_string())
+                        serde_json::to_string_pretty(&json_val)
+                            .unwrap_or_else(|_| trimmed.to_string())
                     );
                 }
                 return Ok(json_val);
@@ -154,11 +156,17 @@ async fn parse_wp_response(resp: reqwest::Response, context_label: &str) -> Resu
 impl WpClient {
     pub fn new(base_url: &str, user: &str, app_password: &str) -> Self {
         let creds = format!("{user}:{app_password}");
-        let auth = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(&creds));
-        let accept_invalid = std::env::var("WP_TLS_INSECURE").is_ok();
+        let auth = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(&creds)
+        );
+        let accept_invalid = std::env::var_os("WP_TLS_INSECURE").is_some();
         Self {
-            http: reqwest::Client::builder()
+            http: http_client_builder()
+                .expect("could not load the PEM root certificate specified by WP_TLS_CA_CERT")
                 .danger_accept_invalid_certs(accept_invalid)
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(60))
                 .build()
                 .expect("Failed to build HTTP client"),
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -207,7 +215,10 @@ impl WpClient {
     }
 
     #[must_use]
-    pub fn with_notifier(mut self, tx: tokio::sync::mpsc::UnboundedSender<ServerNotification>) -> Self {
+    pub fn with_notifier(
+        mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<ServerNotification>,
+    ) -> Self {
         self.notify_tx = Some(tx);
         self
     }
@@ -229,7 +240,9 @@ impl WpClient {
     }
 
     pub fn require_configured(&self) -> Result<()> {
-        if self.configured { return Ok(()); }
+        if self.configured {
+            return Ok(());
+        }
         anyhow::bail!(
             "WordPress not configured. Call the setup_wizard tool to connect:\n\
              • Option A: Provide WP_URL, username, and app password via setup_wizard\n\
@@ -248,51 +261,81 @@ impl WpClient {
 
     pub async fn get(&self, path: &str) -> Result<Value> {
         self.require_configured()?;
-        let resp = self.http.get(self.url(path))
+        let resp = self
+            .http
+            .get(self.url(path))
             .header(AUTHORIZATION, &self.auth)
-            .send().await.context("WP GET request failed")?;
+            .send()
+            .await
+            .context("WP GET request failed")?;
         parse_wp_response(resp, "WP GET parse failed").await
     }
 
     pub async fn post(&self, path: &str, body: &Value) -> Result<Value> {
         self.require_configured()?;
-        let resp = self.http.post(self.url(path))
+        let resp = self
+            .http
+            .post(self.url(path))
             .header(AUTHORIZATION, &self.auth)
             .header(CONTENT_TYPE, "application/json")
             .json(body)
-            .send().await.context("WP POST request failed")?;
+            .send()
+            .await
+            .context("WP POST request failed")?;
         parse_wp_response(resp, "WP POST parse failed").await
     }
 
     #[allow(dead_code)]
     pub async fn put(&self, path: &str, body: &Value) -> Result<Value> {
         self.require_configured()?;
-        let resp = self.http.put(self.url(path))
+        let resp = self
+            .http
+            .put(self.url(path))
             .header(AUTHORIZATION, &self.auth)
             .header(CONTENT_TYPE, "application/json")
             .json(body)
-            .send().await.context("WP PUT request failed")?;
+            .send()
+            .await
+            .context("WP PUT request failed")?;
         parse_wp_response(resp, "WP PUT parse failed").await
     }
 
     pub async fn delete(&self, path: &str) -> Result<Value> {
         self.require_configured()?;
-        let resp = self.http.delete(self.url(path))
+        let resp = self
+            .http
+            .delete(self.url(path))
             .header(AUTHORIZATION, &self.auth)
-            .send().await.context("WP DELETE request failed")?;
+            .send()
+            .await
+            .context("WP DELETE request failed")?;
         parse_wp_response(resp, "WP DELETE parse failed").await
     }
 
-    pub async fn post_multipart(&self, path: &str, form: reqwest::multipart::Form) -> Result<Value> {
+    pub async fn post_multipart(
+        &self,
+        path: &str,
+        form: reqwest::multipart::Form,
+    ) -> Result<Value> {
         self.require_configured()?;
-        let resp = self.http.post(self.url(path))
+        let resp = self
+            .http
+            .post(self.url(path))
             .header(AUTHORIZATION, &self.auth)
             .multipart(form)
-            .send().await.context("WP multipart POST failed")?;
+            .send()
+            .await
+            .context("WP multipart POST failed")?;
         parse_wp_response(resp, "WP multipart parse failed").await
     }
 
-    pub async fn request(&self, method: &str, path: &str, body: Option<&Value>, query: Option<&Value>) -> Result<Value> {
+    pub async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        query: Option<&Value>,
+    ) -> Result<Value> {
         self.require_configured()?;
         let url = self.url(path);
         let mut req = match method.to_uppercase().as_str() {
@@ -309,7 +352,12 @@ impl WpClient {
         {
             let pairs: Vec<(String, String)> = obj
                 .iter()
-                .map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), String::from)))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        v.as_str().map_or_else(|| v.to_string(), String::from),
+                    )
+                })
                 .collect();
             req = req.query(&pairs);
         }
@@ -320,9 +368,20 @@ impl WpClient {
         parse_wp_response(resp, "WP response parse failed").await
     }
 
-    /// Clear Elementor CSS cache. Ignores errors — endpoint may not exist on older versions.
+    /// Clear Elementor CSS cache and propagate failures to the caller.
     pub async fn clear_elementor_cache(&self) -> Result<()> {
-        let _ = self.delete("elementor/v1/cache").await;
+        self.delete("elementor/v1/cache").await?;
         Ok(())
     }
+}
+
+pub(crate) fn http_client_builder() -> anyhow::Result<reqwest::ClientBuilder> {
+    let builder = reqwest::Client::builder();
+    let Some(ca_path) = std::env::var_os("WP_TLS_CA_CERT") else {
+        return Ok(builder);
+    };
+    let pem = std::fs::read(&ca_path).context("read PEM root certificate from WP_TLS_CA_CERT")?;
+    let certificate = reqwest::Certificate::from_pem(&pem)
+        .context("parse PEM root certificate from WP_TLS_CA_CERT")?;
+    Ok(builder.add_root_certificate(certificate))
 }

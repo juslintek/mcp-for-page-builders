@@ -25,15 +25,17 @@ fn make_container(id: &str, children: Vec<Element>) -> Element {
 
 fn sample_tree() -> Vec<Element> {
     vec![
-        make_container("root1", vec![
-            make_widget("w1", "heading"),
-            make_widget("w2", "text-editor"),
-        ]),
-        make_container("root2", vec![
-            make_container("inner1", vec![
-                make_widget("w3", "image"),
-            ]),
-        ]),
+        make_container(
+            "root1",
+            vec![
+                make_widget("w1", "heading"),
+                make_widget("w2", "text-editor"),
+            ],
+        ),
+        make_container(
+            "root2",
+            vec![make_container("inner1", vec![make_widget("w3", "image")])],
+        ),
     ]
 }
 
@@ -113,8 +115,15 @@ fn merge_settings_partial_update() {
 
 #[test]
 fn regenerate_ids_all_unique() {
-    let mut el = make_container("p", vec![make_widget("c1", "heading"), make_widget("c2", "button")]);
-    let old = [el.id.clone(), el.elements[0].id.clone(), el.elements[1].id.clone()];
+    let mut el = make_container(
+        "p",
+        vec![make_widget("c1", "heading"), make_widget("c2", "button")],
+    );
+    let old = [
+        el.id.clone(),
+        el.elements[0].id.clone(),
+        el.elements[1].id.clone(),
+    ];
     regenerate_ids(&mut el);
     assert_ne!(el.id, old[0]);
     assert_ne!(el.elements[0].id, old[1]);
@@ -158,7 +167,10 @@ async fn shadow_realm_spawn_and_fork() {
     use mcp_for_page_builders::shadow_realm::ShadowEngine;
 
     let engine = ShadowEngine::new();
-    let root = engine.spawn("Teams", "https://teams.microsoft.com").await.unwrap();
+    let root = engine
+        .spawn("Teams", "https://teams.microsoft.com")
+        .await
+        .unwrap();
     assert_eq!(root.app_name, "Teams");
     assert_eq!(root.branch_depth, 0);
 
@@ -183,10 +195,35 @@ fn test_all_tool_schemas_valid_for_bedrock() {
             def.name
         );
         assert!(
-            schema.get("properties").is_some_and(serde_json::Value::is_object),
+            schema
+                .get("properties")
+                .is_some_and(serde_json::Value::is_object),
             "Tool '{}' input_schema must have \"properties\": {{...}} object",
             def.name
         );
     }
 }
 
+#[test]
+fn test_v4_tools_registered() {
+    let tools = mcp_for_page_builders::tools::all_tools();
+    let names: std::collections::HashSet<&str> = tools.iter().map(|t| t.def().name).collect();
+    for expected in [
+        "manage_global_variable",
+        "manage_classes",
+        "reorder_classes",
+        "get_default_styles",
+        "manage_default_styles",
+        "list_components",
+        "manage_component",
+        "build_composition",
+        "list_resources",
+        "read_resource",
+        "create_preview_link",
+        "publish_document",
+        "list_site_parts",
+        "manage_site_parts",
+    ] {
+        assert!(names.contains(expected), "Missing V4 tool: {expected}");
+    }
+}

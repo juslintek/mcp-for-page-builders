@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+set -eu
+
+server="${CARGO_HOME:-$HOME/.cargo}/bin/mcp-for-page-builders"
+
+if [ ! -x "$server" ]; then
+  printf '%s\n' "mcp-for-page-builders is not installed. Run: cargo install --path /path/to/mcp-for-page-builders" >&2
+  exit 127
+fi
+
+exec "$server" "$@"

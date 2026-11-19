@@ -1,10 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct GetGlobalTypography;
 
@@ -20,7 +20,13 @@ impl Tool for GetGlobalTypography {
 
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
         let globals = wp.get("elementor/v1/globals").await?;
-        let typo = globals.get("typography").cloned().unwrap_or_else(|| json!({}));
-        Ok(ToolResult::text(serde_json::to_string_pretty(&typo)?))
+        let typo = globals
+            .get("typography")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let settings = super::resource::kit_settings(wp).await?;
+        Ok(ToolResult::text(serde_json::to_string_pretty(
+            &json!({"revision":settings["revision"], "typography":typo}),
+        )?))
     }
 }

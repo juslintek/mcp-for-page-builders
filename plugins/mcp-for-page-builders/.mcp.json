@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcp-for-page-builders": {
+      "command": "./bin/mcp-for-page-builders",
+      "cwd": "."
+    }
+  }
+}

@@ -1,18 +1,18 @@
-use std::fmt::Write;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::Engine;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::fmt::Write;
 use std::path::Path;
 
+use super::{cdp_screenshot, comparison_html, unix_timestamp};
 use crate::args::{str_arg, u64_arg};
 use crate::mcp::{ToolDef, ToolResult};
 use crate::tools::Tool;
 use crate::types::tool_result::ToolContent;
 use crate::wp::WpClient;
-use super::{cdp_screenshot, comparison_html, unix_timestamp};
 
 pub struct VisualCompare;
 
@@ -51,13 +51,18 @@ impl Tool for VisualCompare {
 
         let t = unix_timestamp();
         let dir = Path::new(&dir);
+        tokio::fs::create_dir_all(dir)
+            .await
+            .context("Failed to create output_dir")?;
         let img_a = dir.join(format!("compare-a-{t}.png"));
         let img_b = dir.join(format!("compare-b-{t}.png"));
         let html_out = dir.join(format!("compare-{t}.html"));
         let stitched_out = dir.join(format!("compare-stitched-{t}.png"));
 
-        let (bytes_a, warn_a) = cdp_screenshot(&url_a, &img_a, width, height, pre_js_a.as_deref(), wait_ms).await?;
-        let (bytes_b, warn_b) = cdp_screenshot(&url_b, &img_b, width, height, pre_js_b.as_deref(), wait_ms).await?;
+        let (bytes_a, warn_a) =
+            cdp_screenshot(&url_a, &img_a, width, height, pre_js_a.as_deref(), wait_ms).await?;
+        let (bytes_b, warn_b) =
+            cdp_screenshot(&url_b, &img_b, width, height, pre_js_b.as_deref(), wait_ms).await?;
 
         let file_a = img_a.file_name().unwrap_or_default().to_string_lossy();
         let file_b = img_b.file_name().unwrap_or_default().to_string_lossy();
@@ -89,34 +94,41 @@ impl Tool for VisualCompare {
             img_a.display(),
             img_b.display()
         );
-        if let Some(w) = warn_a { let _ = write!(text, "\n⚠ {label_a}: {w}"); }
-        if let Some(w) = warn_b { let _ = write!(text, "\n⚠ {label_b}: {w}"); }
+        if let Some(w) = warn_a {
+            let _ = write!(text, "\n⚠ {label_a}: {w}");
+        }
+        if let Some(w) = warn_b {
+            let _ = write!(text, "\n⚠ {label_b}: {w}");
+        }
 
         let mut content = vec![ToolContent::Text { text }];
         let mut inline_budget = super::MAX_INLINE_JPEG_BYTES;
 
-        // Stitched image first (the main comparison view)
-        if let Some(ref sb) = stitched_bytes
-            && sb.len() <= inline_budget
-        {
-            content.push(ToolContent::Image {
-                data: base64::engine::general_purpose::STANDARD.encode(sb),
-                mime_type: "image/jpeg".into(),
-            });
-            inline_budget = inline_budget.saturating_sub(sb.len());
+        // Stitched image first (the main comparison view) — capped to model limits
+        if let Some(ref sb) = stitched_bytes {
+            let capped = super::cap_image_for_inline(sb);
+            if capped.len() <= inline_budget {
+                content.push(ToolContent::Image {
+                    data: base64::engine::general_purpose::STANDARD.encode(&capped),
+                    mime_type: "image/jpeg".into(),
+                });
+                inline_budget = inline_budget.saturating_sub(capped.len());
+            }
         }
 
         // Individual images as fallback if budget allows
-        if bytes_a.len() <= inline_budget {
+        let capped_a = super::cap_image_for_inline(&bytes_a);
+        if capped_a.len() <= inline_budget {
             content.push(ToolContent::Image {
-                data: b64_a,
+                data: base64::engine::general_purpose::STANDARD.encode(&capped_a),
                 mime_type: "image/jpeg".into(),
             });
-            inline_budget = inline_budget.saturating_sub(bytes_a.len());
+            inline_budget = inline_budget.saturating_sub(capped_a.len());
         }
-        if bytes_b.len() <= inline_budget {
+        let capped_b = super::cap_image_for_inline(&bytes_b);
+        if capped_b.len() <= inline_budget {
             content.push(ToolContent::Image {
-                data: b64_b,
+                data: base64::engine::general_purpose::STANDARD.encode(&capped_b),
                 mime_type: "image/jpeg".into(),
             });
         }
@@ -139,6 +151,6 @@ async fn stitch_via_cdp(data_url: &str, width: u32, height: u32) -> Result<Vec<u
         )
         .await
         .map_err(|e| anyhow::anyhow!("Stitch screenshot failed: {e}"))?;
-    let _ = page.close().await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), page.close()).await;
     Ok(bytes)
 }

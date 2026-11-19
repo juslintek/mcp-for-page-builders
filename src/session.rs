@@ -65,7 +65,12 @@ impl Session {
         let lock = LockFile { pid, started_at };
         std::fs::write(&lock_path, serde_json::to_string(&lock)?)?;
 
-        Ok(Self { pid, started_at, lock_path, journal_path })
+        Ok(Self {
+            pid,
+            started_at,
+            lock_path,
+            journal_path,
+        })
     }
 
     /// Append a pending entry to the journal. Returns the entry id.
@@ -118,25 +123,38 @@ impl Drop for Session {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn append_line(path: &PathBuf, line: &str) -> Result<()> {
     use std::io::Write;
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(f, "{line}")?;
     Ok(())
 }
 
 fn rewrite_status(path: &PathBuf, id: &str, new_status: &str) -> Result<()> {
     let content = std::fs::read_to_string(path).unwrap_or_default();
-    let updated = content.lines().map(|line| {
-        if line.contains(id) {
-            line.replace("\"status\":\"pending\"", &format!("\"status\":\"{new_status}\""))
-        } else {
-            line.to_string()
-        }
-    }).collect::<Vec<_>>().join("\n") + "\n";
+    let updated = content
+        .lines()
+        .map(|line| {
+            if line.contains(id) {
+                line.replace(
+                    "\"status\":\"pending\"",
+                    &format!("\"status\":\"{new_status}\""),
+                )
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
     std::fs::write(path, updated)?;
     Ok(())
 }

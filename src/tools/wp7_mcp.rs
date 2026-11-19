@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::types::{Tool, ToolDef, ToolResult};
 use crate::wp::WpClient;
@@ -42,7 +42,9 @@ impl Tool for Wp7McpCapabilities {
             ]
         });
 
-        Ok(ToolResult::text(serde_json::to_string_pretty(&capabilities)?))
+        Ok(ToolResult::text(serde_json::to_string_pretty(
+            &capabilities,
+        )?))
     }
 }
 
@@ -64,7 +66,10 @@ impl Tool for Wp7TemplateParts {
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
         wp.require_configured()?;
-        let ttype = args.get("type").and_then(Value::as_str).unwrap_or("templates");
+        let ttype = args
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("templates");
         let endpoint = if let Some(s) = args.get("slug").and_then(Value::as_str) {
             format!("wp/v2/{ttype}/{s}")
         } else {
@@ -96,7 +101,9 @@ impl Tool for Wp7BlockRender {
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
         wp.require_configured()?;
-        let block_name = args["block_name"].as_str().ok_or_else(|| anyhow::anyhow!("block_name required"))?;
+        let block_name = args["block_name"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("block_name required"))?;
         let mut query = json!({});
         if let Some(attrs) = args.get("attributes") {
             query["attributes"] = json!(serde_json::to_string(attrs)?);

@@ -59,13 +59,18 @@ impl ShadowEngine {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let shadow_id = format!("shadow-{}-{}", app_name.to_lowercase().replace(' ', "-"), rand::random::<u16>());
+        let shadow_id = format!(
+            "shadow-{}-{}",
+            app_name.to_lowercase().replace(' ', "-"),
+            rand::random::<u16>()
+        );
         let profile_path = std::env::temp_dir()
             .join(format!("shadow-realm-profile-{shadow_id}"))
             .display()
             .to_string();
 
-        std::fs::create_dir_all(&profile_path).context("Failed to create shadow profile directory")?;
+        std::fs::create_dir_all(&profile_path)
+            .context("Failed to create shadow profile directory")?;
 
         let branch = ShadowBranch {
             id: shadow_id.clone(),
@@ -98,8 +103,10 @@ impl ShadowEngine {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let name_slug = branch_name
-            .map_or_else(|| format!("fork-{}", rand::random::<u16>()), |n| n.to_lowercase().replace(' ', "-"));
+        let name_slug = branch_name.map_or_else(
+            || format!("fork-{}", rand::random::<u16>()),
+            |n| n.to_lowercase().replace(' ', "-"),
+        );
         let fork_id = format!("{}-{name_slug}", parent.id);
 
         let fork_profile_path = std::env::temp_dir()

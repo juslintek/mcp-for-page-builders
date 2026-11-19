@@ -18,12 +18,17 @@ pub async fn run(wp_url: &str) -> Result<()> {
         .danger_accept_invalid_certs(true)
         .build()?;
 
-    let resp = client.get(format!("{wp_url}/wp-json/"))
-        .send().await
+    let resp = client
+        .get(format!("{wp_url}/wp-json/"))
+        .send()
+        .await
         .context("Cannot reach WordPress REST API. Is the URL correct?")?;
 
     if !resp.status().is_success() {
-        anyhow::bail!("REST API returned {}. Is WordPress installed at {wp_url}?", resp.status());
+        anyhow::bail!(
+            "REST API returned {}. Is WordPress installed at {wp_url}?",
+            resp.status()
+        );
     }
 
     let api: serde_json::Value = resp.json().await?;
@@ -58,8 +63,13 @@ pub async fn run(wp_url: &str) -> Result<()> {
     let request = String::from_utf8_lossy(&buf[..n]);
 
     // Parse the GET request for params
-    let path = request.lines().next().unwrap_or("")
-        .split_whitespace().nth(1).unwrap_or("");
+    let path = request
+        .lines()
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("");
 
     // Send response to browser
     let html = if path.contains("user_login") {
@@ -67,14 +77,17 @@ pub async fn run(wp_url: &str) -> Result<()> {
     } else {
         "<html><body><h1>&#10008; Rejected</h1><p>Authorization was denied.</p></body></html>"
     };
-    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n{html}");
+    let response =
+        format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n{html}");
     tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes()).await?;
 
     // 6. Extract credentials from callback URL
     let params = parse_query(path);
-    let user = params.get("user_login")
+    let user = params
+        .get("user_login")
         .ok_or_else(|| anyhow::anyhow!("Authorization rejected or no user_login in callback"))?;
-    let password = params.get("password")
+    let password = params
+        .get("password")
         .ok_or_else(|| anyhow::anyhow!("No password in callback"))?;
 
     println!("\nAuthorized as: {user}");
@@ -82,9 +95,11 @@ pub async fn run(wp_url: &str) -> Result<()> {
     // 7. Verify credentials work
     print!("Verifying... ");
     let auth = format!("Basic {}", base64_encode(&format!("{user}:{password}")));
-    let verify = client.get(format!("{wp_url}/wp-json/wp/v2/users/me"))
+    let verify = client
+        .get(format!("{wp_url}/wp-json/wp/v2/users/me"))
         .header("Authorization", &auth)
-        .send().await?;
+        .send()
+        .await?;
 
     if !verify.status().is_success() {
         anyhow::bail!("Credentials verification failed: {}", verify.status());
@@ -105,7 +120,9 @@ pub async fn run(wp_url: &str) -> Result<()> {
 
     println!("\nCredentials saved to {}", path.display());
     println!("\nUsage:");
-    println!("  WP_URL={wp_url} WP_APP_USER={user} WP_APP_PASSWORD={password} mcp-for-page-builders");
+    println!(
+        "  WP_URL={wp_url} WP_APP_USER={user} WP_APP_PASSWORD={password} mcp-for-page-builders"
+    );
     println!("\nOr the MCP server will auto-load from {}", path.display());
 
     Ok(())
@@ -113,11 +130,19 @@ pub async fn run(wp_url: &str) -> Result<()> {
 
 fn open_browser(url: &str) {
     #[cfg(target_os = "macos")]
-    { let _ = std::process::Command::new("open").arg(url).spawn(); }
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
     #[cfg(target_os = "linux")]
-    { let _ = std::process::Command::new("xdg-open").arg(url).spawn(); }
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
     #[cfg(target_os = "windows")]
-    { let _ = std::process::Command::new("cmd").args(["/c", "start", url]).spawn(); }
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", url])
+            .spawn();
+    }
 }
 
 fn parse_query(path: &str) -> std::collections::HashMap<String, String> {

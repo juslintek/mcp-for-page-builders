@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::types::{Tool, ToolDef, ToolResult};
 use crate::wp::{SiteCredentials, WpClient};
@@ -21,16 +21,24 @@ impl Tool for ListSites {
     }
 
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let store = wp.store().ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
+        let store = wp
+            .store()
+            .ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
         let s = store.read().await;
-        let sites: Vec<Value> = s.list_sites().iter().map(|c| {
-            json!({
-                "url": c.url,
-                "user": c.user,
-                "active": s.active.as_deref() == Some(&c.url),
+        let sites: Vec<Value> = s
+            .list_sites()
+            .iter()
+            .map(|c| {
+                json!({
+                    "url": c.url,
+                    "user": c.user,
+                    "active": s.active.as_deref() == Some(&c.url),
+                })
             })
-        }).collect();
-        Ok(ToolResult::text(serde_json::to_string_pretty(&json!({"sites": sites}))?))
+            .collect();
+        Ok(ToolResult::text(serde_json::to_string_pretty(
+            &json!({"sites": sites}),
+        )?))
     }
 }
 
@@ -53,18 +61,35 @@ impl Tool for ConnectSite {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?
-            .trim_end_matches('/').to_string();
-        let user = args["user"].as_str().ok_or_else(|| anyhow::anyhow!("user required"))?.to_string();
-        let app_password = args["app_password"].as_str().ok_or_else(|| anyhow::anyhow!("app_password required"))?.to_string();
+        let url = args["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("url required"))?
+            .trim_end_matches('/')
+            .to_string();
+        let user = args["user"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("user required"))?
+            .to_string();
+        let app_password = args["app_password"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("app_password required"))?
+            .to_string();
 
-        let store = wp.store().ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
+        let store = wp
+            .store()
+            .ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
         let mut s = store.write().await;
-        s.add_site(SiteCredentials { url: url.clone(), user, app_password });
+        s.add_site(SiteCredentials {
+            url: url.clone(),
+            user,
+            app_password,
+        });
         s.save()?;
         drop(s);
         wp.notify(crate::wp::ServerNotification::Reconfigure);
-        Ok(ToolResult::text(format!("Connected to {url}. Use switch_site to make it active.")))
+        Ok(ToolResult::text(format!(
+            "Connected to {url}. Use switch_site to make it active."
+        )))
     }
 }
 
@@ -85,8 +110,12 @@ impl Tool for DisconnectSite {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?;
-        let store = wp.store().ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
+        let url = args["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("url required"))?;
+        let store = wp
+            .store()
+            .ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
         let mut s = store.write().await;
         s.remove_site(url);
         s.save()?;
@@ -111,13 +140,19 @@ impl Tool for SwitchSite {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?;
-        let store = wp.store().ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
+        let url = args["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("url required"))?;
+        let store = wp
+            .store()
+            .ok_or_else(|| anyhow::anyhow!("Site store not available"))?;
         let mut s = store.write().await;
         s.switch(url)?;
         s.save()?;
         drop(s);
         wp.notify(crate::wp::ServerNotification::Reconfigure);
-        Ok(ToolResult::text(format!("Switched active site to {url}. Client will reconfigure automatically.")))
+        Ok(ToolResult::text(format!(
+            "Switched active site to {url}. Client will reconfigure automatically."
+        )))
     }
 }

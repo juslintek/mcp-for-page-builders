@@ -1,21 +1,12 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 
+use super::Tool;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
-use super::Tool;
 
-/// Static lookup table mapping ~40 CSS properties to Elementor widget settings.
-///
-/// Handles shorthand properties (`padding`, `margin`, `border-radius`) by parsing
-/// them into TRBL (top/right/bottom/left) format that Elementor expects.
-///
-/// **Weakness:** not all CSS properties are mapped — unmapped properties are returned
-/// in an `unmapped` array so callers know what was ignored.
-///
-/// The `widget_type` parameter is reserved for future schema-aware mapping
-/// (e.g. heading vs container have different setting keys) but is not yet implemented.
 pub struct CssToElementor;
 
 #[async_trait]
@@ -23,186 +14,520 @@ impl Tool for CssToElementor {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "css_to_elementor",
-            description: "Convert CSS properties to Elementor widget settings JSON. Handles padding/margin TRBL, typography, background, border, flexbox, and more.\n\nWorkflow: Takes output from extract_styles and produces settings ready for update_element. Reports unmapped properties. Or use match_styles to do extract→convert→apply in one call.",
+            description: "Map CSS declarations to verified Elementor settings. Unsupported declarations are returned as residuals.",
             input_schema: json!({
                 "type": "object",
-                "required": ["css"],
+                "required": ["css", "widget_type"],
                 "properties": {
-                    "css": { "type": "object", "description": "CSS property→value map, e.g. {\"background-color\":\"#fff\",\"padding\":\"10px 20px\"}" },
-                    "widget_type": { "type": "string", "description": "Optional widget type for schema-aware mapping" }
+                    "css": { "type": "object" },
+                    "widget_type": { "type": "string" },
+                    "target": { "type": "string", "enum": ["classic", "atomic"] }
                 }
             }),
         }
     }
 
-    async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let css = args.get("css").and_then(|v| v.as_object())
-            .ok_or_else(|| anyhow::anyhow!("css object required"))?;
+    async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
+        let css = args
+            .get("css")
+            .and_then(Value::as_object)
+            .context("css object required")?;
+        let target = args
+            .get("target")
+            .and_then(Value::as_str)
+            .unwrap_or("classic");
+        if target != "classic" {
+            if target != "atomic" {
+                anyhow::bail!("target must be classic or atomic");
+            }
+            let response = wp
+                .post(
+                    "elementor/v1/css-to-atomic",
+                    &json!({"blocks":{"probe":css}}),
+                )
+                .await
+                .context("Elementor native CSS conversion request failed")?;
+            let converted = response
+                .pointer("/data/probe")
+                .context("Elementor native CSS conversion response omitted data.probe")?;
+            let mut output = json!({"target":"atomic", "props":converted["props"]});
+            if !converted["customCss"].is_null() && converted["customCss"] != "" {
+                output["customCss"] = converted["customCss"].clone();
+            }
+            output["rejected"] = converted
+                .get("rejected")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            return Ok(ToolResult::text(serde_json::to_string_pretty(&output)?));
+        }
 
-        let (out, unmapped) = map_css_to_elementor(css);
-
-        let mut result = json!({"settings": Value::Object(out)});
-        if !unmapped.is_empty() {
-            result["unmapped"] = json!(unmapped);
+        let widget_type = args
+            .get("widget_type")
+            .and_then(Value::as_str)
+            .context("widget_type required for target-aware mapping")?;
+        let schema = crate::elementor::ElementorService::new(wp)
+            .element_schema(widget_type)
+            .await
+            .context("failed to load the registered Elementor widget schema")?;
+        let allowed = schema_setting_keys(&schema);
+        let (settings, residual) = map_css_to_elementor_for_widget(css, widget_type, &allowed);
+        let mut result = json!({"target":"classic", "settings":settings});
+        result["widget_type"] = json!(widget_type);
+        if !residual.is_empty() {
+            result["residual"] = json!(residual);
         }
         Ok(ToolResult::text(serde_json::to_string_pretty(&result)?))
     }
 }
 
-/// Core CSS→Elementor mapping logic, reusable from other tools (e.g. `match_styles`).
+fn schema_setting_keys(schema: &Value) -> HashSet<String> {
+    schema["controls"]
+        .as_object()
+        .into_iter()
+        .flat_map(|controls| controls.keys().cloned())
+        .chain(
+            schema["props_schema"]
+                .as_object()
+                .into_iter()
+                .flat_map(|props| props.keys().cloned()),
+        )
+        .chain(
+            schema["style_schema"]
+                .as_object()
+                .into_iter()
+                .flat_map(|styles| styles.keys().cloned()),
+        )
+        .collect()
+}
+
+/// Result from Elementor's native Atomic CSS conversion endpoint.
+/// The planner accepts this only when its caller has obtained it from the active editor runtime.
+#[derive(Debug, Clone)]
+pub struct AtomicCssConversion {
+    pub settings: Value,
+    pub custom_css: Option<Value>,
+    pub rejected: Vec<String>,
+    pub capability: String,
+}
+
+pub fn map_css_to_elementor_target(
+    css: &Map<String, Value>,
+    target: &str,
+    widget_type: Option<&str>,
+    classic_allowed_keys: Option<&HashSet<String>>,
+    atomic: Option<&AtomicCssConversion>,
+) -> Result<(Value, Vec<String>)> {
+    match target {
+        "classic" => {
+            let widget_type =
+                widget_type.context("classic CSS mapping requires a target widget type")?;
+            let allowed = classic_allowed_keys
+                .context("classic CSS mapping requires the registered widget schema")?;
+            let (settings, residual) = map_css_to_elementor_for_widget(css, widget_type, allowed);
+            Ok((Value::Object(settings), residual))
+        }
+        "atomic" => {
+            let conversion =
+                atomic.context("Atomic target needs a native editor conversion capability")?;
+            if conversion.capability != "elementor-native-css-converter" {
+                anyhow::bail!(
+                    "Atomic conversion was not produced by Elementor's native CSS converter"
+                );
+            }
+            Ok((conversion.settings.clone(), conversion.rejected.clone()))
+        }
+        _ => anyhow::bail!("target must be classic or atomic"),
+    }
+}
+
+/// Map only classic settings with known value shapes. Invalid and unsupported declarations remain residual.
 pub fn map_css_to_elementor(css: &Map<String, Value>) -> (Map<String, Value>, Vec<String>) {
+    map_css(css, None, None)
+}
+
+pub fn map_css_to_elementor_for_widget(
+    css: &Map<String, Value>,
+    widget_type: &str,
+    allowed_keys: &HashSet<String>,
+) -> (Map<String, Value>, Vec<String>) {
+    map_css(css, Some(widget_type), Some(allowed_keys))
+}
+
+fn map_css(
+    css: &Map<String, Value>,
+    widget_type: Option<&str>,
+    allowed_keys: Option<&HashSet<String>>,
+) -> (Map<String, Value>, Vec<String>) {
     let mut out = Map::new();
-    let mut unmapped = Vec::new();
-
-    for (prop, val) in css {
-        let v = val.as_str().unwrap_or("");
-        if v.is_empty() || v == "none" || v == "normal" || v == "auto" { continue; }
-
-        match prop.as_str() {
-            "background-color" => {
+    let mut residual = Vec::new();
+    for (prop, value) in css {
+        let Some(raw) = value.as_str() else {
+            residual.push(format!("{prop}: non-string value"));
+            continue;
+        };
+        let value = raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let previous = out.clone();
+        let accepted = match prop.as_str() {
+            "background-color" if !is_keyword(value) && !is_symbolic(value) => {
                 out.insert("background_background".into(), json!("classic"));
-                out.insert("background_color".into(), json!(v));
+                out.insert("background_color".into(), json!(value));
+                true
             }
-            "background-image" if v.starts_with("linear-gradient") || v.starts_with("radial-gradient") => {
-                out.insert("background_background".into(), json!("gradient"));
+            "background-image" if is_gradient(value) => {
+                // CSS gradients carry angle, stops and color spaces that this classic control cannot preserve.
+                false
             }
-            "color" => { out.insert("color".into(), json!(v)); }
-            "font-size" => { out.insert("typography_typography".into(), json!("custom")); out.insert("typography_font_size".into(), parse_size(v)); }
-            "font-weight" => { out.insert("typography_typography".into(), json!("custom")); out.insert("typography_font_weight".into(), json!(v)); }
-            "font-family" => { out.insert("typography_typography".into(), json!("custom")); out.insert("typography_font_family".into(), json!(v.split(',').next().unwrap_or(v).trim().trim_matches('\"').trim_matches('\''))); }
-            "line-height" => { out.insert("typography_typography".into(), json!("custom")); out.insert("typography_line_height".into(), parse_size(v)); }
-            "letter-spacing" => { out.insert("typography_typography".into(), json!("custom")); out.insert("typography_letter_spacing".into(), parse_size(v)); }
-            "text-transform" => { out.insert("typography_typography".into(), json!("custom")); out.insert("typography_text_transform".into(), json!(v)); }
-            "padding" => { out.insert("padding".into(), parse_trbl(v)); }
-            "padding-top" => { set_trbl_part(&mut out, "padding", "top", v); }
-            "padding-right" => { set_trbl_part(&mut out, "padding", "right", v); }
-            "padding-bottom" => { set_trbl_part(&mut out, "padding", "bottom", v); }
-            "padding-left" => { set_trbl_part(&mut out, "padding", "left", v); }
-            "margin" => { out.insert("margin".into(), parse_trbl(v)); }
-            "margin-top" => { set_trbl_part(&mut out, "margin", "top", v); }
-            "margin-right" => { set_trbl_part(&mut out, "margin", "right", v); }
-            "margin-bottom" => { set_trbl_part(&mut out, "margin", "bottom", v); }
-            "margin-left" => { set_trbl_part(&mut out, "margin", "left", v); }
-            "border-radius" => { out.insert("border_radius".into(), parse_trbl_radius(v)); }
-            "border" => {
-                let parts: Vec<&str> = v.splitn(3, ' ').collect();
-                if parts.len() >= 2 {
-                    out.insert("border_border".into(), json!(parts[1]));
-                    if let Some(w) = parts.first() { out.insert("border_width".into(), parse_trbl(w)); }
-                    if let Some(c) = parts.get(2) { out.insert("border_color".into(), json!(c)); }
+            "color" if !is_keyword(value) && !is_symbolic(value) => {
+                out.insert("color".into(), json!(value));
+                true
+            }
+            "font-size" | "line-height" | "letter-spacing" => {
+                if let Some(size) = parse_size(value) {
+                    out.insert("typography_typography".into(), json!("custom"));
+                    let key = match prop.as_str() {
+                        "font-size" => "typography_font_size",
+                        "line-height" => "typography_line_height",
+                        _ => "typography_letter_spacing",
+                    };
+                    out.insert(key.into(), size);
+                    true
+                } else {
+                    false
                 }
             }
-            "gap" => { out.insert("flex_gap".into(), parse_size(v)); }
-            "display" => {}
-            "flex-direction" => { out.insert("flex_direction".into(), json!(v)); }
-            "justify-content" => { out.insert("flex_justify_content".into(), json!(flex_val(v))); }
-            "align-items" => { out.insert("flex_align_items".into(), json!(flex_val(v))); }
-            "width" => {
-                let s = parse_size(v);
-                if v.ends_with('%') {
-                    out.insert("_element_width".into(), json!("initial"));
-                    out.insert("_element_custom_width".into(), json!({"size": s["size"], "unit": "%"}));
-                } else if v != "auto" {
-                    out.insert("_element_width".into(), json!("initial"));
-                    out.insert("_element_custom_width".into(), s);
+            "font-weight" if parse_weight(value) => {
+                out.insert("typography_typography".into(), json!("custom"));
+                out.insert("typography_font_weight".into(), json!(value));
+                true
+            }
+            "font-family" if !value.is_empty() => {
+                out.insert("typography_typography".into(), json!("custom"));
+                out.insert(
+                    "typography_font_family".into(),
+                    json!(
+                        value
+                            .split(',')
+                            .next()
+                            .unwrap_or(value)
+                            .trim()
+                            .trim_matches(['"', '\''])
+                    ),
+                );
+                true
+            }
+            "text-transform"
+                if matches!(value, "none" | "capitalize" | "uppercase" | "lowercase") =>
+            {
+                out.insert("typography_typography".into(), json!("custom"));
+                out.insert("typography_text_transform".into(), json!(value));
+                true
+            }
+            "padding" | "margin" | "border-radius" => {
+                if let Some(mapped) = parse_trbl(value) {
+                    let key = if prop == "border-radius" {
+                        "border_radius"
+                    } else {
+                        prop
+                    };
+                    out.insert(key.into(), mapped);
+                    true
+                } else {
+                    false
                 }
             }
-            "min-height" => { out.insert("min_height".into(), parse_size(v)); }
-            "max-width" => { out.insert("max_width".into(), parse_size(v)); }
-            "height" if v != "auto" => { out.insert("height".into(), parse_size(v)); }
+            "padding-top" | "padding-right" | "padding-bottom" | "padding-left" | "margin-top"
+            | "margin-right" | "margin-bottom" | "margin-left" => {
+                if let Some(size) = parse_size(value) {
+                    let key = if prop.starts_with("padding") {
+                        "padding"
+                    } else {
+                        "margin"
+                    };
+                    set_trbl_part(
+                        &mut out,
+                        key,
+                        prop.rsplit('-').next().unwrap_or_default(),
+                        size,
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+            "flex-direction"
+                if matches!(value, "row" | "row-reverse" | "column" | "column-reverse") =>
+            {
+                out.insert("flex_direction".into(), json!(value));
+                true
+            }
+            "justify-content"
+                if matches!(
+                    value,
+                    "flex-start"
+                        | "start"
+                        | "flex-end"
+                        | "end"
+                        | "center"
+                        | "space-between"
+                        | "space-around"
+                        | "space-evenly"
+                ) =>
+            {
+                out.insert("flex_justify_content".into(), json!(flex_val(value)));
+                true
+            }
+            "align-items"
+                if matches!(
+                    value,
+                    "flex-start" | "start" | "flex-end" | "end" | "center" | "stretch" | "baseline"
+                ) =>
+            {
+                out.insert("flex_align_items".into(), json!(flex_val(value)));
+                true
+            }
+            "width" | "height" | "min-height" | "max-width" | "gap" => {
+                if let Some(size) = parse_size(value) {
+                    let key = match prop.as_str() {
+                        "gap" => "flex_gap",
+                        "min-height" => "min_height",
+                        "max-width" => "max_width",
+                        _ => prop,
+                    };
+                    if prop == "width" {
+                        out.insert("_element_width".into(), json!("initial"));
+                        out.insert("_element_custom_width".into(), size);
+                    } else {
+                        out.insert(key.into(), size);
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
             "opacity" => {
-                if let Ok(f) = v.parse::<f64>() {
-                    out.insert("_opacity".into(), json!({"size": f, "unit": ""}));
+                if let Ok(n) = value.parse::<f64>() {
+                    if (0.0..=1.0).contains(&n) {
+                        out.insert("_opacity".into(), json!({"size": n, "unit": ""}));
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
             }
             "z-index" => {
-                if let Ok(n) = v.parse::<i64>() {
+                if let Ok(n) = value.parse::<i64>() {
                     out.insert("z_index".into(), json!({"size": n, "unit": ""}));
+                    true
+                } else {
+                    false
                 }
             }
-            "position" if v != "static" => { out.insert("position".into(), json!(v)); }
-            "box-shadow" if v != "none" => {
-                out.insert("box_shadow_box_shadow_type".into(), json!("yes"));
-                let parts: Vec<&str> = v.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    let mut shadow = Map::new();
-                    if let Some(x) = parts.first() { shadow.insert("horizontal".into(), json!(parse_num(x))); }
-                    if let Some(y) = parts.get(1) { shadow.insert("vertical".into(), json!(parse_num(y))); }
-                    if let Some(b) = parts.get(2) { shadow.insert("blur".into(), json!(parse_num(b))); }
-                    if let Some(s) = parts.get(3) {
-                        if s.starts_with('#') || s.starts_with("rgb") {
-                            shadow.insert("color".into(), json!(s));
-                        } else {
-                            shadow.insert("spread".into(), json!(parse_num(s)));
-                            if let Some(c) = parts.get(4) { shadow.insert("color".into(), json!(c)); }
-                        }
-                    }
-                    out.insert("box_shadow_box_shadow".into(), json!(shadow));
-                }
+            "position" if matches!(value, "absolute" | "fixed" | "relative" | "sticky") => {
+                out.insert("position".into(), json!(value));
+                true
             }
-            "overflow" if v == "hidden" => { out.insert("overflow".into(), json!("hidden")); }
-            _ => { unmapped.push(format!("{prop}: {v}")); }
+            "overflow" if matches!(value, "hidden" | "visible" | "scroll" | "auto") => {
+                out.insert("overflow".into(), json!(value));
+                true
+            }
+            // display, states, gradients, borders and shadows are not represented without widget-specific context.
+            _ => false,
+        };
+        if accepted {
+            remap_widget_keys(&mut out, prop, widget_type, allowed_keys);
+        }
+        if accepted && allowed_keys.is_some_and(|keys| out.keys().any(|key| !keys.contains(key))) {
+            out = previous;
+            residual.push(format!("{prop}: {value}"));
+        } else if !accepted {
+            residual.push(format!("{prop}: {value}"));
         }
     }
-
-    (out, unmapped)
+    (out, residual)
 }
 
-fn parse_num(s: &str) -> f64 {
-    s.trim_end_matches(|c: char| c.is_alphabetic() || c == '%').parse().unwrap_or(0.0)
-}
-
-fn parse_unit(s: &str) -> &str {
-    if s.ends_with("px") { "px" }
-    else if s.ends_with("em") { "em" }
-    else if s.ends_with("rem") { "rem" }
-    else if s.ends_with('%') { "%" }
-    else if s.ends_with("vw") { "vw" }
-    else if s.ends_with("vh") { "vh" }
-    else { "px" }
-}
-
-fn parse_size(s: &str) -> Value {
-    json!({"size": parse_num(s), "unit": parse_unit(s)})
-}
-
-fn parse_trbl(s: &str) -> Value {
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    let unit = parts.first().map_or("px", |p| parse_unit(p));
-    match parts.len() {
-        1 => { let v = parse_num(parts[0]); json!({"top": v.to_string(), "right": v.to_string(), "bottom": v.to_string(), "left": v.to_string(), "unit": unit, "isLinked": true}) }
-        2 => { let tb = parse_num(parts[0]); let lr = parse_num(parts[1]); json!({"top": tb.to_string(), "right": lr.to_string(), "bottom": tb.to_string(), "left": lr.to_string(), "unit": unit, "isLinked": false}) }
-        3 => { json!({"top": parse_num(parts[0]).to_string(), "right": parse_num(parts[1]).to_string(), "bottom": parse_num(parts[2]).to_string(), "left": parse_num(parts[1]).to_string(), "unit": unit, "isLinked": false}) }
-        _ => { json!({"top": parse_num(parts[0]).to_string(), "right": parse_num(parts.get(1).unwrap_or(&"0")).to_string(), "bottom": parse_num(parts.get(2).unwrap_or(&"0")).to_string(), "left": parse_num(parts.get(3).unwrap_or(&"0")).to_string(), "unit": unit, "isLinked": false}) }
+fn remap_widget_keys(
+    out: &mut Map<String, Value>,
+    property: &str,
+    widget: Option<&str>,
+    allowed: Option<&HashSet<String>>,
+) {
+    if property == "background-color" && widget == Some("button") {
+        out.remove("background_background");
+    }
+    let alternatives: &[(&str, &str)] = match property {
+        "background-color" if widget == Some("button") => &[
+            ("background_background", ""),
+            ("background_color", "background_color"),
+        ],
+        "background-color" => &[
+            ("background_background", "_background_background"),
+            ("background_color", "_background_color"),
+        ],
+        "color" => match widget {
+            Some("heading") => &[("color", "title_color")],
+            Some("text-editor") => &[("color", "text_color")],
+            Some("button") => &[("color", "button_text_color")],
+            _ => &[("color", "")],
+        },
+        "padding" | "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => {
+            &[("padding", "_padding")]
+        }
+        "margin" | "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
+            &[("margin", "_margin")]
+        }
+        "border-radius" => &[("border_radius", "_border_radius")],
+        "z-index" => &[("z_index", "_z_index")],
+        "position" => &[("position", "_position")],
+        "opacity" if widget == Some("image") => &[("_opacity", "opacity")],
+        _ => &[],
+    };
+    for (from, to) in alternatives {
+        if to.is_empty() {
+            continue;
+        }
+        if let Some(value) = out.remove(*from) {
+            let chosen = if allowed.is_some_and(|keys| !keys.contains(*to) && keys.contains(*from))
+            {
+                *from
+            } else {
+                *to
+            };
+            out.insert(chosen.into(), value);
+        }
     }
 }
 
-fn parse_trbl_radius(s: &str) -> Value {
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    let unit = parts.first().map_or("px", |p| parse_unit(p));
-    match parts.len() {
-        1 => { let v = parse_num(parts[0]); json!({"top": v.to_string(), "right": v.to_string(), "bottom": v.to_string(), "left": v.to_string(), "unit": unit, "isLinked": true}) }
-        _ => { json!({"top": parse_num(parts[0]).to_string(), "right": parse_num(parts.get(1).unwrap_or(&"0")).to_string(), "bottom": parse_num(parts.get(2).unwrap_or(&"0")).to_string(), "left": parse_num(parts.get(3).unwrap_or(&"0")).to_string(), "unit": unit, "isLinked": false}) }
+fn is_keyword(value: &str) -> bool {
+    matches!(
+        value,
+        "inherit" | "initial" | "unset" | "revert" | "revert-layer"
+    )
+}
+fn is_symbolic(value: &str) -> bool {
+    value.contains("var(")
+        || value.contains("calc(")
+        || value.contains("env(")
+        || value == "currentColor"
+}
+fn is_gradient(value: &str) -> bool {
+    value.starts_with("linear-gradient(")
+        || value.starts_with("radial-gradient(")
+        || value.starts_with("conic-gradient(")
+}
+fn parse_weight(value: &str) -> bool {
+    matches!(value, "normal" | "bold" | "bolder" | "lighter")
+        || value.parse::<u16>().is_ok_and(|n| (1..=1000).contains(&n))
+}
+
+fn parse_size(value: &str) -> Option<Value> {
+    if matches!(value, "auto" | "normal" | "none") {
+        return None;
+    }
+    let split = value
+        .find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '+' | '-')))
+        .unwrap_or(value.len());
+    let (number, unit) = value.split_at(split);
+    let number = number.parse::<f64>().ok()?;
+    if !number.is_finite()
+        || !matches!(
+            unit,
+            "px" | "rem" | "em" | "%" | "vw" | "vh" | "" | "ch" | "ex"
+        )
+    {
+        return None;
+    }
+    Some(json!({"size": number, "unit": unit}))
+}
+
+fn parse_trbl(value: &str) -> Option<Value> {
+    let parts: Vec<Value> = value
+        .split_whitespace()
+        .map(parse_size)
+        .collect::<Option<_>>()?;
+    if parts.is_empty() || parts.len() > 4 {
+        return None;
+    }
+    let first_unit = parts[0]["unit"].as_str()?;
+    if parts.iter().any(|part| part["unit"] != first_unit) {
+        return None;
+    }
+    let n = |i: usize| parts[i]["size"].as_f64().map(|f| f.to_string());
+    let top = n(0)?;
+    let right = n(if parts.len() > 1 { 1 } else { 0 })?;
+    let bottom = n(if parts.len() > 2 { 2 } else { 0 })?;
+    let left = n(if parts.len() > 3 {
+        3
+    } else if parts.len() > 1 {
+        1
+    } else {
+        0
+    })?;
+    Some(
+        json!({"top":top,"right":right,"bottom":bottom,"left":left,"unit":first_unit,"isLinked":parts.len()==1}),
+    )
+}
+
+fn set_trbl_part(out: &mut Map<String, Value>, key: &str, side: &str, size: Value) {
+    let entry = out.entry(key.to_string()).or_insert_with(|| json!({"top":"0","right":"0","bottom":"0","left":"0","unit":size["unit"],"isLinked":false}));
+    if let Some(object) = entry.as_object_mut() {
+        object.insert(
+            side.to_string(),
+            json!(
+                size["size"]
+                    .as_f64()
+                    .map_or_else(|| "0".into(), |n| n.to_string())
+            ),
+        );
+        object.insert("unit".into(), size["unit"].clone());
+        object.insert("isLinked".into(), json!(false));
     }
 }
 
-fn set_trbl_part(out: &mut Map<String, Value>, key: &str, side: &str, v: &str) {
-    let entry = out.entry(key.to_string()).or_insert_with(|| json!({"top":"","right":"","bottom":"","left":"","unit":"px","isLinked":false}));
-    if let Some(obj) = entry.as_object_mut() {
-        obj.insert(side.to_string(), json!(parse_num(v).to_string()));
-        obj.insert("unit".to_string(), json!(parse_unit(v)));
+fn flex_val(value: &str) -> &str {
+    match value {
+        "start" => "flex-start",
+        "end" => "flex-end",
+        _ => value,
     }
 }
 
-fn flex_val(css: &str) -> &str {
-    match css {
-        "flex-start" | "start" => "flex-start",
-        "flex-end" | "end" => "flex-end",
-        "center" => "center",
-        "space-between" => "space-between",
-        "space-around" => "space-around",
-        "space-evenly" => "space-evenly",
-        "stretch" => "stretch",
-        _ => css,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_and_symbolic_css_stays_residual() {
+        let css = serde_json::from_value::<Map<String, Value>>(json!({
+            "font-size":"1.25rem", "width":"100%", "background-image":"linear-gradient(90deg, red, blue)",
+            "display":"grid", "color":"var(--brand-color)"
+        })).unwrap();
+        let (settings, residual) = map_css_to_elementor(&css);
+        assert_eq!(settings["typography_font_size"]["unit"], "rem");
+        assert_eq!(settings["_element_custom_width"]["size"], 100.0);
+        assert_eq!(settings["_element_custom_width"]["unit"], "%");
+        assert_eq!(residual.len(), 3);
+        assert!(
+            residual
+                .iter()
+                .any(|item| item.starts_with("background-image:"))
+        );
+        assert!(residual.iter().any(|item| item.starts_with("display:")));
+        assert!(residual.iter().any(|item| item.starts_with("color:")));
+
+        let heading_keys = HashSet::from(["title_color".to_string()]);
+        let heading_css = serde_json::from_value::<Map<String, Value>>(
+            json!({"color":"#123456","font-size":"18px"}),
+        )
+        .unwrap();
+        let (heading, heading_residual) =
+            map_css_to_elementor_for_widget(&heading_css, "heading", &heading_keys);
+        assert_eq!(heading["title_color"], "#123456");
+        assert_eq!(heading_residual, vec!["font-size: 18px"]);
     }
 }

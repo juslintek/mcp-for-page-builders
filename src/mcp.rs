@@ -48,7 +48,11 @@ impl Stdio {
                     // content logged — a client payload could embed
                     // secrets/tokens/PII, and this now persists to disk.
                     let preview: String = trimmed.chars().take(200).collect();
-                    let truncated_note = if trimmed.len() > preview.len() { " (truncated)" } else { "" };
+                    let truncated_note = if trimmed.len() > preview.len() {
+                        " (truncated)"
+                    } else {
+                        ""
+                    };
                     tracing::error!(
                         "Failed to parse incoming JSON-RPC line: {e} — raw{truncated_note}: {preview:?}"
                     );
@@ -67,7 +71,11 @@ impl Stdio {
     }
 
     /// Send a JSON-RPC notification (no id, no response expected).
-    pub async fn write_notification(&mut self, method: &str, params: serde_json::Value) -> Result<()> {
+    pub async fn write_notification(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<()> {
         let msg = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method,

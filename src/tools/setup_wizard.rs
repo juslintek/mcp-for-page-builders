@@ -1,10 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct SetupWizard;
 
@@ -27,7 +27,7 @@ impl Tool for SetupWizard {
         }
 
         Ok(ToolResult::text(
-r#"WordPress is not configured. Choose a setup option:
+            r#"WordPress is not configured. Choose a setup option:
 
 ━━━ Option A: Edit MCP config (recommended) ━━━
 Add env vars to your MCP client config (e.g. .kiro/settings/mcp.json):
@@ -64,6 +64,8 @@ These tools work right now (CDP-only, no WordPress needed):
   • extract_styles — computed CSS extraction
   • clone_element — DOM to Elementor JSON
   • css_to_elementor — CSS to Elementor settings
-  • list_widgets / get_widget_schema / validate_element — schema tools"#.to_string()))
+  • list_widgets / get_widget_schema / validate_element — schema tools"#
+                .to_string(),
+        ))
     }
 }

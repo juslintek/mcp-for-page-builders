@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::engine::ShadowBranch;
+use serde::{Deserialize, Serialize};
 
 /// Portal Badge Indicator state attached to target desktop applications
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,15 +1,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
+use super::Tool;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::util::{config_path, urldecode, urlencode, uuid};
 use crate::wp::WpClient;
-use super::Tool;
 
 const APP_NAME: &str = "mcp-for-page-builders";
 const TIMEOUT_SECS: u64 = 300;
@@ -35,19 +35,25 @@ impl Tool for Authenticate {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let preset_url = args.get("wp_url").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
+        let preset_url = args
+            .get("wp_url")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
 
         // Verify the WordPress site is reachable before starting the flow
         if let Some(url) = &preset_url {
             let check_url = format!("{}/wp-json/", url.trim_end_matches('/'));
             let accept_invalid = std::env::var("WP_TLS_INSECURE").is_ok();
-            let client = reqwest::Client::builder()
+            let client = crate::wp::http_client_builder()?
                 .danger_accept_invalid_certs(accept_invalid)
                 .timeout(std::time::Duration::from_secs(10))
                 .build()?;
             match client.head(&check_url).send().await {
                 Ok(resp) if resp.status().is_server_error() => {
-                    return Ok(ToolResult::error(format!("WordPress site returned {}: {url}", resp.status())));
+                    return Ok(ToolResult::error(format!(
+                        "WordPress site returned {}: {url}",
+                        resp.status()
+                    )));
                 }
                 Err(e) => {
                     return Ok(ToolResult::error(format!("Cannot reach {url}: {e:#}")));
@@ -63,16 +69,21 @@ impl Tool for Authenticate {
         eprintln!("[auth] Step 1/5: Local HTTP server bound to port {port}");
 
         let done = Arc::new(Notify::new());
-        let result: Arc<tokio::sync::Mutex<Option<AuthResult>>> = Arc::new(tokio::sync::Mutex::new(None));
+        let result: Arc<tokio::sync::Mutex<Option<AuthResult>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
 
         // 1. Spawn HTTP server FIRST so the port is accepting connections
         let preset_clone = preset_url.clone();
         let result2 = result.clone();
         let done2 = done.clone();
-        let tunnel_holder: Arc<tokio::sync::Mutex<String>> = Arc::new(tokio::sync::Mutex::new(String::new()));
+        let tunnel_holder: Arc<tokio::sync::Mutex<String>> =
+            Arc::new(tokio::sync::Mutex::new(String::new()));
         let tunnel_holder2 = tunnel_holder.clone();
         std::thread::spawn(move || {
-            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
                 rt.block_on(async {
                     if let Ok(listener) = TcpListener::from_std(std_listener) {
                         serve(listener, tunnel_holder2, preset_clone, result2, done2).await;
@@ -94,23 +105,29 @@ impl Tool for Authenticate {
         let completed = tokio::time::timeout(
             std::time::Duration::from_secs(TIMEOUT_SECS),
             done.notified(),
-        ).await;
+        )
+        .await;
 
         if completed.is_err() {
-            return Ok(ToolResult::error(format!("Authentication timed out after {TIMEOUT_SECS}s.\nOpen {open_url} to try again.")));
+            return Ok(ToolResult::error(format!(
+                "Authentication timed out after {TIMEOUT_SECS}s.\nOpen {open_url} to try again."
+            )));
         }
 
         let auth = result.lock().await;
         match auth.as_ref() {
-            Some(AuthResult { wp_url, user, error: None, .. }) => {
-                Ok(ToolResult::text(format!(
-                    "Authenticated successfully!\n\nSite: {wp_url}\nUser: {user}\nCredentials saved to: {}",
-                    config_path(wp_url).display()
-                )))
-            }
-            Some(AuthResult { error: Some(e), .. }) => {
-                Ok(ToolResult::error(format!("Authentication failed: {e}\nOpen {open_url} to try again.")))
-            }
+            Some(AuthResult {
+                wp_url,
+                user,
+                error: None,
+                ..
+            }) => Ok(ToolResult::text(format!(
+                "Authenticated successfully!\n\nSite: {wp_url}\nUser: {user}\nCredentials saved to: {}",
+                config_path(wp_url).display()
+            ))),
+            Some(AuthResult { error: Some(e), .. }) => Ok(ToolResult::error(format!(
+                "Authentication failed: {e}\nOpen {open_url} to try again."
+            ))),
             _ => Ok(ToolResult::text(format!(
                 "Open this URL in your browser to authenticate:\n\n  {open_url}\n\nWaiting for approval (timeout: {TIMEOUT_SECS}s)..."
             ))),
@@ -146,11 +163,18 @@ fn start_tunnel(port: u16) -> Result<String> {
     let providers: Vec<(&str, fn(u16) -> Result<String>)> = vec![
         ("cloudflared", try_cloudflared as fn(u16) -> Result<String>),
         ("ngrok", try_ngrok as fn(u16) -> Result<String>),
-        ("localhost.run", try_localhost_run as fn(u16) -> Result<String>),
+        (
+            "localhost.run",
+            try_localhost_run as fn(u16) -> Result<String>,
+        ),
     ];
 
     for (name, try_fn) in &providers {
-        if !which(if *name == "localhost.run" { "ssh" } else { name }) {
+        if !which(if *name == "localhost.run" {
+            "ssh"
+        } else {
+            name
+        }) {
             continue;
         }
         eprintln!("[auth] Trying {name}...");
@@ -188,8 +212,12 @@ fn start_tunnel(port: u16) -> Result<String> {
 
 fn cleanup_stale_tunnels() {
     // Kill MCP-spawned quick tunnels (not system daemons with --token)
-    let _ = std::process::Command::new("pkill").args(["-f", "cloudflared tunnel --url"]).output();
-    let _ = std::process::Command::new("pkill").args(["-f", "ngrok http"]).output();
+    let _ = std::process::Command::new("pkill")
+        .args(["-f", "cloudflared tunnel --url"])
+        .output();
+    let _ = std::process::Command::new("pkill")
+        .args(["-f", "ngrok http"])
+        .output();
     std::thread::sleep(std::time::Duration::from_secs(1));
 }
 
@@ -205,7 +233,10 @@ fn save_tunnel_state(provider: &str, url: &str, port: u16) {
         "pid": std::process::id(),
         "ts": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
     });
-    let _ = std::fs::write(tunnel_state_path(), serde_json::to_string_pretty(&state).unwrap_or_default());
+    let _ = std::fs::write(
+        tunnel_state_path(),
+        serde_json::to_string_pretty(&state).unwrap_or_default(),
+    );
 }
 
 fn load_existing_tunnel() -> Option<String> {
@@ -213,7 +244,9 @@ fn load_existing_tunnel() -> Option<String> {
     let state: serde_json::Value = serde_json::from_str(&data).ok()?;
     let url = state["url"].as_str()?.to_string();
     let ts = state["ts"].as_u64().unwrap_or(0);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     if now - ts > 3600 {
         let _ = std::fs::remove_file(tunnel_state_path());
         return None;
@@ -228,7 +261,16 @@ fn clear_tunnel_state() {
 fn healthcheck(url: &str) -> bool {
     for i in 1..=3 {
         if let Ok(out) = std::process::Command::new("curl")
-            .args(["-sL", "--max-time", "8", "-o", "/dev/null", "-w", "%{http_code}", url])
+            .args([
+                "-sL",
+                "--max-time",
+                "8",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                url,
+            ])
             .output()
         {
             let code = String::from_utf8_lossy(&out.stdout);
@@ -247,9 +289,12 @@ fn healthcheck(url: &str) -> bool {
 }
 
 fn which(cmd: &str) -> bool {
-    std::process::Command::new("which").arg(cmd)
-        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-        .status().is_ok_and(|s| s.success())
+    std::process::Command::new("which")
+        .arg(cmd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn try_cloudflared(port: u16) -> Result<String> {
@@ -257,17 +302,28 @@ fn try_cloudflared(port: u16) -> Result<String> {
     use std::process::{Command, Stdio};
 
     let mut child = Command::new("cloudflared")
-        .args(["tunnel", "--url", &format!("http://localhost:{port}"), "--no-autoupdate"])
-        .stdout(Stdio::null()).stderr(Stdio::piped())
+        .args([
+            "tunnel",
+            "--url",
+            &format!("http://localhost:{port}"),
+            "--no-autoupdate",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()?;
 
-    let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("cloudflared stderr capture failed"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("cloudflared stderr capture failed"))?;
     let reader = BufReader::new(stderr);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut url = None;
 
     for line in reader.lines() {
-        if std::time::Instant::now() > deadline { break; }
+        if std::time::Instant::now() > deadline {
+            break;
+        }
         let line = line?;
         if url.is_none() {
             url = extract_https_url(&line, "trycloudflare.com");
@@ -293,8 +349,16 @@ fn try_ngrok(port: u16) -> Result<String> {
 
     // Start ngrok
     let child = Command::new("ngrok")
-        .args(["http", &port.to_string(), "--log", "stdout", "--log-format", "json"])
-        .stdout(Stdio::null()).stderr(Stdio::null())
+        .args([
+            "http",
+            &port.to_string(),
+            "--log",
+            "stdout",
+            "--log-format",
+            "json",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()?;
     std::mem::forget(child);
 
@@ -325,16 +389,28 @@ fn try_localhost_run(port: u16) -> Result<String> {
     use std::process::{Command, Stdio};
 
     let mut child = Command::new("ssh")
-        .args(["-o", "StrictHostKeyChecking=no", "-R", &format!("80:localhost:{port}"), "localhost.run"])
-        .stdout(Stdio::piped()).stderr(Stdio::null())
+        .args([
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-R",
+            &format!("80:localhost:{port}"),
+            "localhost.run",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()?;
 
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("localhost.run stdout capture failed"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("localhost.run stdout capture failed"))?;
     let reader = BufReader::new(stdout);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
 
     for line in reader.lines() {
-        if std::time::Instant::now() > deadline { break; }
+        if std::time::Instant::now() > deadline {
+            break;
+        }
         let line = line?;
         if let Some(url) = extract_https_url(&line, "localhost.run") {
             std::mem::forget(child);
@@ -348,11 +424,16 @@ fn try_localhost_run(port: u16) -> Result<String> {
 fn extract_https_url(line: &str, domain: &str) -> Option<String> {
     let start = line.find("https://")?;
     let url_part = &line[start..];
-    let end = url_part.find(|c: char| c.is_whitespace() || c == '|' || c == '"' || c == '\'').unwrap_or(url_part.len());
+    let end = url_part
+        .find(|c: char| c.is_whitespace() || c == '|' || c == '"' || c == '\'')
+        .unwrap_or(url_part.len());
     let url = url_part[..end].trim_end_matches('/');
-    if url.contains(domain) { Some(url.to_string()) } else { None }
+    if url.contains(domain) {
+        Some(url.to_string())
+    } else {
+        None
+    }
 }
-
 
 // ── HTTP server ──────────────────────────────────────────────────────────────
 
@@ -364,12 +445,19 @@ async fn serve(
     done: Arc<Notify>,
 ) {
     loop {
-        let Ok((mut stream, _)) = listener.accept().await else { break };
+        let Ok((mut stream, _)) = listener.accept().await else {
+            break;
+        };
         let mut buf = vec![0u8; 8192];
         let n = stream.read(&mut buf).await.unwrap_or(0);
         let request = String::from_utf8_lossy(&buf[..n]).to_string();
-        let path = request.lines().next().unwrap_or("")
-            .split_whitespace().nth(1).unwrap_or("/");
+        let path = request
+            .lines()
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("/");
 
         let tunnel_url = tunnel_holder.lock().await.clone();
 
@@ -392,13 +480,16 @@ async fn serve(
                     .unwrap_or_default();
                 let _ = save_config(&wp_url, &user, &password);
                 *result.lock().await = Some(AuthResult {
-                    wp_url, user, error: None,
+                    wp_url,
+                    user,
+                    error: None,
                 });
                 done.notify_one();
                 page_success()
             } else {
                 *result.lock().await = Some(AuthResult {
-                    wp_url: String::new(), user: String::new(),
+                    wp_url: String::new(),
+                    user: String::new(),
                     error: Some("Authorization was rejected".into()),
                 });
                 done.notify_one();
@@ -448,22 +539,37 @@ fn save_config(wp_url: &str, user: &str, password: &str) -> Result<()> {
 
 fn open_browser(url: &str) {
     #[cfg(target_os = "macos")]
-    { let _ = std::process::Command::new("open").arg(url).spawn(); }
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
     #[cfg(target_os = "linux")]
-    { let _ = std::process::Command::new("xdg-open").arg(url).spawn(); }
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
     #[cfg(target_os = "windows")]
-    { let _ = std::process::Command::new("cmd").args(["/c", "start", url]).spawn(); }
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", url])
+            .spawn();
+    }
 }
 
 // ── HTML pages ───────────────────────────────────────────────────────────────
 
 fn http_response(status: &str, content_type: &str, body: &str) -> String {
-    format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len())
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
 }
 
 fn page_form(tunnel_url: &str, preset: Option<&str>) -> String {
     let val = preset.unwrap_or("");
-    http_response("200 OK", "text/html", &format!(r#"<!DOCTYPE html>
+    http_response(
+        "200 OK",
+        "text/html",
+        &format!(
+            r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>MCP for Page Builders — Connect</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -492,12 +598,17 @@ button:hover{{background:#c73e54}}
 // If page loaded via tunnel, DNS is working. If not, retry.
 if (!document.querySelector('h1')) setTimeout(()=>location.reload(), 3000);
 </script>
-</body></html>"#))
+</body></html>"#
+        ),
+    )
 }
 
 fn page_redirect(wp_url: &str, tunnel_url: &str) -> String {
     let wp_url = wp_url.trim_end_matches('/');
-    let callback = urlencode(&format!("{tunnel_url}/callback?site_url={}", urlencode(wp_url)));
+    let callback = urlencode(&format!(
+        "{tunnel_url}/callback?site_url={}",
+        urlencode(wp_url)
+    ));
     let auth_url = format!(
         "{wp_url}/wp-admin/authorize-application.php?app_name={APP_NAME}&app_id={}&success_url={callback}&reject_url={callback}",
         uuid()
@@ -508,24 +619,38 @@ fn page_redirect(wp_url: &str, tunnel_url: &str) -> String {
 }
 
 fn page_success() -> String {
-    http_response("200 OK", "text/html", r#"<!DOCTYPE html>
+    http_response(
+        "200 OK",
+        "text/html",
+        r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Connected!</title>
 <style>body{font-family:system-ui;background:#0f0f23;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}
 .card{background:#1a1a2e;border-radius:12px;padding:48px;text-align:center;max-width:400px}
 h1{color:#4ade80;margin-bottom:12px}.icon{font-size:64px;margin-bottom:16px}p{color:#888}</style></head>
-<body><div class="card"><div class="icon">✓</div><h1>Connected!</h1><p>You can close this tab. The MCP server is now authenticated.</p></div></body></html>"#)
+<body><div class="card"><div class="icon">✓</div><h1>Connected!</h1><p>You can close this tab. The MCP server is now authenticated.</p></div></body></html>"#,
+    )
 }
 
 fn page_rejected() -> String {
-    http_response("200 OK", "text/html", r#"<!DOCTYPE html>
+    http_response(
+        "200 OK",
+        "text/html",
+        r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Rejected</title>
 <style>body{font-family:system-ui;background:#0f0f23;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}
 .card{background:#1a1a2e;border-radius:12px;padding:48px;text-align:center;max-width:400px}
 h1{color:#f87171;margin-bottom:12px}.icon{font-size:64px;margin-bottom:16px}p{color:#888}</style></head>
-<body><div class="card"><div class="icon">✗</div><h1>Rejected</h1><p>Authorization was denied. You can close this tab.</p></div></body></html>"#)
+<body><div class="card"><div class="icon">✗</div><h1>Rejected</h1><p>Authorization was denied. You can close this tab.</p></div></body></html>"#,
+    )
 }
 
 fn page_error(msg: &str) -> String {
-    http_response("400 Bad Request", "text/html", &format!(r#"<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Error</title></head><body><h1>Error</h1><p>{msg}</p><a href="/">Try again</a></body></html>"#))
+    http_response(
+        "400 Bad Request",
+        "text/html",
+        &format!(
+            r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Error</title></head><body><h1>Error</h1><p>{msg}</p><a href="/">Try again</a></body></html>"#
+        ),
+    )
 }

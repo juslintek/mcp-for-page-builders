@@ -1,11 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
-use crate::tools::Tool;
 use super::registry::SchemaRegistry;
+use crate::mcp::{ToolDef, ToolResult};
+use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct ValidateElement;
 
@@ -20,22 +20,34 @@ impl Tool for ValidateElement {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let el = args.get("element").ok_or_else(|| anyhow::anyhow!("element required"))?;
+        let el = args
+            .get("element")
+            .ok_or_else(|| anyhow::anyhow!("element required"))?;
         let el_type = el.get("elType").and_then(|v| v.as_str()).unwrap_or("");
         let widget_type = el.get("widgetType").and_then(|v| v.as_str());
 
         let mut errors: Vec<String> = Vec::new();
         let mut warnings: Vec<String> = Vec::new();
 
-        if el.get("id").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+        if el
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .is_empty()
+        {
             warnings.push("Missing 'id' — will be auto-generated on add_element".into());
         }
         if el_type.is_empty() {
-            errors.push("Missing 'elType' — must be 'widget', 'container', 'section', or 'column'".into());
+            errors.push(
+                "Missing 'elType' — must be 'widget', 'container', 'section', or 'column'".into(),
+            );
         }
 
         if el_type == "widget" {
-            let Some(wt) = widget_type else { errors.push("Widget element missing 'widgetType'".into()); return Ok(format_validation(&errors, &warnings)); };
+            let Some(wt) = widget_type else {
+                errors.push("Widget element missing 'widgetType'".into());
+                return Ok(format_validation(&errors, &warnings));
+            };
             let reg = SchemaRegistry::global();
             match reg.get(wt) {
                 Some(schema) => {
@@ -51,7 +63,11 @@ impl Tool for ValidateElement {
                         }
                     }
                 }
-                None => { warnings.push(format!("Widget type '{wt}' not in bundled schema — settings not validated")); }
+                None => {
+                    warnings.push(format!(
+                        "Widget type '{wt}' not in bundled schema — settings not validated"
+                    ));
+                }
             }
         }
 
@@ -67,11 +83,19 @@ fn format_validation(errors: &[String], warnings: &[String]) -> ToolResult {
     let mut lines = Vec::new();
     if !errors.is_empty() {
         lines.push(format!("✗ {} error(s):", errors.len()));
-        for e in errors { lines.push(format!("  ERROR: {e}")); }
+        for e in errors {
+            lines.push(format!("  ERROR: {e}"));
+        }
     }
     if !warnings.is_empty() {
         lines.push(format!("⚠ {} warning(s):", warnings.len()));
-        for w in warnings { lines.push(format!("  WARN: {w}")); }
+        for w in warnings {
+            lines.push(format!("  WARN: {w}"));
+        }
     }
-    if errors.is_empty() { ToolResult::text(lines.join("\n")) } else { ToolResult::error(lines.join("\n")) }
+    if errors.is_empty() {
+        ToolResult::text(lines.join("\n"))
+    } else {
+        ToolResult::error(lines.join("\n"))
+    }
 }

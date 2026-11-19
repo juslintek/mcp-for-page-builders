@@ -1,13 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use super::engine::ShadowEngine;
+use super::portal::{PortalBadge, PortalInfo, render_portal_html};
 use crate::args::str_arg;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::tools::Tool;
 use crate::wp::WpClient;
-use super::engine::ShadowEngine;
-use super::portal::{render_portal_html, PortalBadge, PortalInfo};
 
 /// MCP Tool: Spawn a new isolated Shadow Realm session
 pub struct ShadowSpawn;
@@ -30,8 +30,10 @@ impl Tool for ShadowSpawn {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let app_name = str_arg(&args, "app_name").ok_or_else(|| anyhow::anyhow!("app_name required"))?;
-        let target_url = str_arg(&args, "target_url").ok_or_else(|| anyhow::anyhow!("target_url required"))?;
+        let app_name =
+            str_arg(&args, "app_name").ok_or_else(|| anyhow::anyhow!("app_name required"))?;
+        let target_url =
+            str_arg(&args, "target_url").ok_or_else(|| anyhow::anyhow!("target_url required"))?;
 
         let engine = ShadowEngine::global();
         let branch = engine.spawn(&app_name, &target_url).await?;
@@ -72,7 +74,8 @@ impl Tool for ShadowFork {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let parent_id = str_arg(&args, "parent_shadow_id").ok_or_else(|| anyhow::anyhow!("parent_shadow_id required"))?;
+        let parent_id = str_arg(&args, "parent_shadow_id")
+            .ok_or_else(|| anyhow::anyhow!("parent_shadow_id required"))?;
         let branch_name = str_arg(&args, "branch_name");
 
         let engine = ShadowEngine::global();
@@ -140,7 +143,8 @@ impl Tool for ShadowPromote {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let shadow_id = str_arg(&args, "shadow_id").ok_or_else(|| anyhow::anyhow!("shadow_id required"))?;
+        let shadow_id =
+            str_arg(&args, "shadow_id").ok_or_else(|| anyhow::anyhow!("shadow_id required"))?;
 
         let engine = ShadowEngine::global();
         let branch = engine.promote(&shadow_id).await?;

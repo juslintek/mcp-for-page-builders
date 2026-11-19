@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
+use super::Tool;
 use crate::cdp;
 use crate::elementor::generate_id;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
-use super::Tool;
 
 /// Converts live DOM elements to Elementor JSON by inspecting via CDP and mapping HTML tags to widget types.
 ///
@@ -40,23 +40,42 @@ impl Tool for CloneElement {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?;
-        let selector = args["selector"].as_str().ok_or_else(|| anyhow::anyhow!("selector required"))?;
-        let max_depth = args.get("max_depth").and_then(serde_json::Value::as_u64).unwrap_or(3);
+        let url = args["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("url required"))?;
+        let selector = args["selector"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("selector required"))?;
+        let max_depth = args
+            .get("max_depth")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(3);
 
         let js = build_dom_inspect_js(selector, max_depth);
-        let (page, _warning) = cdp::open_page_with_js(url, 1440, 900,
+        let (page, _warning) = cdp::open_page_with_js(
+            url,
+            1440,
+            900,
             args["pre_js"].as_str(),
-            args.get("wait_ms").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        ).await?;
-        let result: String = page.evaluate(js).await.context("CDP evaluate failed")?.into_value()?;
+            args.get("wait_ms")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        )
+        .await?;
+        let result: String = page
+            .evaluate(js)
+            .await
+            .context("CDP evaluate failed")?
+            .into_value()?;
         let dom: Value = serde_json::from_str(&result)?;
         if let Some(err) = dom.get("error") {
             anyhow::bail!("{}", err.as_str().unwrap_or("not found"));
         }
 
         let elementor = dom_to_elementor(&dom, 0);
-        Ok(ToolResult::text(serde_json::to_string_pretty(&json!([elementor]))?))
+        Ok(ToolResult::text(serde_json::to_string_pretty(&json!([
+            elementor
+        ]))?))
     }
 }
 
@@ -87,22 +106,32 @@ fn dom_to_elementor(node: &Value, depth: u32) -> Value {
             let level = &tag[1..];
             settings.insert("title".into(), json!(text));
             settings.insert("header_size".into(), json!(format!("h{level}")));
-            if let Some(css) = styles { add_typography(&mut settings, css); }
+            if let Some(css) = styles {
+                add_typography(&mut settings, css);
+            }
             widget("heading", &id, settings)
         }
         "P" => {
             settings.insert("editor".into(), json!(format!("<p>{text}</p>")));
-            if let Some(css) = styles { add_typography(&mut settings, css); }
+            if let Some(css) = styles {
+                add_typography(&mut settings, css);
+            }
             widget("text-editor", &id, settings)
         }
         "IMG" => {
-            if !src.is_empty() { settings.insert("image".into(), json!({"url": src})); }
+            if !src.is_empty() {
+                settings.insert("image".into(), json!({"url": src}));
+            }
             widget("image", &id, settings)
         }
         "A" if !text.is_empty() && text.len() < 50 => {
             settings.insert("text".into(), json!(text));
-            if !href.is_empty() { settings.insert("link".into(), json!({"url": href})); }
-            if let Some(css) = styles { add_typography(&mut settings, css); }
+            if !href.is_empty() {
+                settings.insert("link".into(), json!({"url": href}));
+            }
+            if let Some(css) = styles {
+                add_typography(&mut settings, css);
+            }
             widget("button", &id, settings)
         }
         _ => {
@@ -123,25 +152,34 @@ fn dom_to_elementor(node: &Value, depth: u32) -> Value {
 #[allow(clippy::or_fun_call)]
 fn apply_container_styles(settings: &mut Map<String, Value>, css: &Map<String, Value>) {
     if let Some(bg) = css.get("background-color").and_then(|v| v.as_str())
-        && bg != "rgba(0, 0, 0, 0)" && bg != "transparent" {
-            settings.insert("background_background".into(), json!("classic"));
-            settings.insert("background_color".into(), json!(bg));
-        }
+        && bg != "rgba(0, 0, 0, 0)"
+        && bg != "transparent"
+    {
+        settings.insert("background_background".into(), json!("classic"));
+        settings.insert("background_color".into(), json!(bg));
+    }
     if let Some(br) = css.get("border-radius").and_then(|v| v.as_str())
-        && br != "0px" {
-            let n = br.replace("px", "").parse::<f64>().unwrap_or(0.0);
-            settings.insert("border_radius".into(), json!({"top":n.to_string(),"right":n.to_string(),"bottom":n.to_string(),"left":n.to_string(),"unit":"px","isLinked":true}));
-        }
+        && br != "0px"
+    {
+        let n = br.replace("px", "").parse::<f64>().unwrap_or(0.0);
+        settings.insert("border_radius".into(), json!({"top":n.to_string(),"right":n.to_string(),"bottom":n.to_string(),"left":n.to_string(),"unit":"px","isLinked":true}));
+    }
     if let Some(p) = css.get("padding").and_then(|v| v.as_str())
-        && p != "0px" {
-            let parts: Vec<f64> = p.split_whitespace().map(|s| s.replace("px","").parse().unwrap_or(0.0)).collect();
-            if let Some(&v) = parts.first() {
-                settings.insert("padding".into(), json!({"top":v.to_string(),"right":parts.get(1).unwrap_or(&v).to_string(),"bottom":parts.get(2).unwrap_or(&v).to_string(),"left":parts.get(3).unwrap_or(parts.get(1).unwrap_or(&v)).to_string(),"unit":"px","isLinked":parts.len()==1}));
-            }
+        && p != "0px"
+    {
+        let parts: Vec<f64> = p
+            .split_whitespace()
+            .map(|s| s.replace("px", "").parse().unwrap_or(0.0))
+            .collect();
+        if let Some(&v) = parts.first() {
+            settings.insert("padding".into(), json!({"top":v.to_string(),"right":parts.get(1).unwrap_or(&v).to_string(),"bottom":parts.get(2).unwrap_or(&v).to_string(),"left":parts.get(3).unwrap_or(parts.get(1).unwrap_or(&v)).to_string(),"unit":"px","isLinked":parts.len()==1}));
         }
+    }
     if let Some(gap) = css.get("gap").and_then(|v| v.as_str()) {
-        let n = gap.replace("px","").parse::<f64>().unwrap_or(0.0);
-        if n > 0.0 { settings.insert("flex_gap".into(), json!({"size":n,"unit":"px"})); }
+        let n = gap.replace("px", "").parse::<f64>().unwrap_or(0.0);
+        if n > 0.0 {
+            settings.insert("flex_gap".into(), json!({"size":n,"unit":"px"}));
+        }
     }
     if let Some(fd) = css.get("flex-direction").and_then(|v| v.as_str()) {
         settings.insert("flex_direction".into(), json!(fd));
@@ -160,14 +198,19 @@ fn add_typography(settings: &mut Map<String, Value>, css: &Map<String, Value>) {
         settings.insert("title_color".into(), json!(v));
     }
     if let Some(v) = css.get("font-size").and_then(|v| v.as_str()) {
-        let n = v.replace("px","").parse::<f64>().unwrap_or(0.0);
-        if n > 0.0 { settings.insert("typography_font_size".into(), json!({"size":n,"unit":"px"})); has_typo = true; }
+        let n = v.replace("px", "").parse::<f64>().unwrap_or(0.0);
+        if n > 0.0 {
+            settings.insert("typography_font_size".into(), json!({"size":n,"unit":"px"}));
+            has_typo = true;
+        }
     }
     if let Some(v) = css.get("font-weight").and_then(|v| v.as_str()) {
-        settings.insert("typography_font_weight".into(), json!(v)); has_typo = true;
+        settings.insert("typography_font_weight".into(), json!(v));
+        has_typo = true;
     }
     if let Some(v) = css.get("text-transform").and_then(|v| v.as_str()) {
-        settings.insert("typography_text_transform".into(), json!(v)); has_typo = true;
+        settings.insert("typography_text_transform".into(), json!(v));
+        has_typo = true;
     }
     if has_typo {
         settings.insert("typography_typography".into(), json!("custom"));

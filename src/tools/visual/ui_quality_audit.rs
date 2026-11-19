@@ -212,6 +212,7 @@ impl Tool for UiQualityAudit {
             .unwrap_or_default();
 
         let dir = Path::new(&output_dir);
+        tokio::fs::create_dir_all(dir).await?;
         let stamp = unix_timestamp();
         let target_image_path = dir.join(format!("ui-audit-target-{stamp}.png"));
         let (target_bytes, target_warning) = match cdp_screenshot(
@@ -365,7 +366,7 @@ async fn run_accessibility_audit(
         .context("Failed to decode accessibility audit result")?;
     let report: Value =
         serde_json::from_str(&payload).context("Failed to parse accessibility audit JSON")?;
-    let _ = page.close().await;
+    let _ = tokio::time::timeout(Duration::from_secs(3), page.close()).await;
     Ok(report)
 }
 
@@ -484,8 +485,8 @@ async fn run_visual_mismatch_audit(
         .filter(|value| value.get("severity").and_then(Value::as_str) == Some("medium"))
         .count();
 
-    let _ = page_a.close().await;
-    let _ = page_b.close().await;
+    let _ = tokio::time::timeout(Duration::from_secs(3), page_a.close()).await;
+    let _ = tokio::time::timeout(Duration::from_secs(3), page_b.close()).await;
 
     Ok(json!({
         "match_score": score,

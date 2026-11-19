@@ -1,0 +1,24 @@
+{
+  "name": "mcp-for-page-builders",
+  "version": "0.2.0+codex.20260909123532",
+  "description": "Local MCP server for WordPress page builders.",
+  "author": {
+    "name": "Juslintek"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "MCP for Page Builders",
+    "shortDescription": "Work with WordPress page builders through MCP.",
+    "longDescription": "Connect Codex to the locally installed mcp-for-page-builders server.",
+    "developerName": "Juslintek",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use mcp-for-page-builders to inspect or update an Elementor site."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::args::{str_arg, u64_arg};
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct DownloadPage;
 
@@ -24,15 +24,23 @@ impl Tool for DownloadPage {
         let path = str_arg(&args, "path").ok_or_else(|| anyhow::anyhow!("path required"))?;
 
         let page = wp.get(&format!("wp/v2/pages/{id}?context=edit")).await?;
-        let data = page.get("meta").and_then(|m| m.get("_elementor_data"))
+        let data = page
+            .get("meta")
+            .and_then(|m| m.get("_elementor_data"))
             .ok_or_else(|| anyhow::anyhow!("No _elementor_data found on page {id}"))?;
 
         let content = match data.as_str() {
-            Some(s) => { let parsed: Value = serde_json::from_str(s)?; serde_json::to_string_pretty(&parsed)? }
+            Some(s) => {
+                let parsed: Value = serde_json::from_str(s)?;
+                serde_json::to_string_pretty(&parsed)?
+            }
             None => serde_json::to_string_pretty(data)?,
         };
 
         tokio::fs::write(&path, &content).await?;
-        Ok(ToolResult::text(format!("Saved Elementor data for page {id} to {path} ({} bytes)", content.len())))
+        Ok(ToolResult::text(format!(
+            "Saved Elementor data for page {id} to {path} ({} bytes)",
+            content.len()
+        )))
     }
 }

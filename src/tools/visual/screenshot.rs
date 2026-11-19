@@ -1,14 +1,14 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use std::fmt::Write;
 
+use super::{cdp_screenshot_opts, unix_timestamp};
 use crate::args::{bool_arg, str_arg, u64_arg};
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
-use super::{cdp_screenshot_opts, unix_timestamp};
+use crate::wp::WpClient;
 
 pub struct Screenshot;
 
@@ -32,17 +32,33 @@ impl Tool for Screenshot {
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
         let url = str_arg(&args, "url").ok_or_else(|| anyhow::anyhow!("url required"))?;
-        let output = str_arg(&args, "output").unwrap_or_else(|| format!("/tmp/screenshot-{}.png", unix_timestamp()));
+        let output = str_arg(&args, "output")
+            .unwrap_or_else(|| format!("/tmp/screenshot-{}.png", unix_timestamp()));
+        let out_path = std::path::Path::new(&output);
+        if let Some(parent) = out_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
         let width = u32::try_from(u64_arg(&args, "width").unwrap_or(1440)).unwrap_or(1440);
         let height = u32::try_from(u64_arg(&args, "height").unwrap_or(900)).unwrap_or(900);
         let pre_js = str_arg(&args, "pre_js");
         let wait_ms = u64_arg(&args, "wait_ms").unwrap_or(0);
         let reuse_tab = bool_arg(&args, "reuse_tab").unwrap_or(false);
 
-        let (bytes, warning) = cdp_screenshot_opts(&url, std::path::Path::new(&output), width, height, pre_js.as_deref(), wait_ms, reuse_tab).await?;
+        let (bytes, warning) = cdp_screenshot_opts(
+            &url,
+            out_path,
+            width,
+            height,
+            pre_js.as_deref(),
+            wait_ms,
+            reuse_tab,
+        )
+        .await?;
+        let inline_bytes = super::cap_image_for_inline(&bytes);
         let mut msg = format!("Screenshot saved to {output}");
-        if let Some(w) = warning { let _ = write!(msg, "\n⚠ {w}"); }
-        Ok(ToolResult::text_and_image(msg, &bytes, "image/jpeg"))
+        if let Some(w) = warning {
+            let _ = write!(msg, "\n⚠ {w}");
+        }
+        Ok(ToolResult::text_and_image(msg, &inline_bytes, "image/jpeg"))
     }
 }
-

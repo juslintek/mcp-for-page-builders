@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::types::{Tool, ToolDef, ToolResult};
 use crate::wp::WpClient;
@@ -37,7 +37,9 @@ impl Tool for UploadMedia {
             (data, name)
         } else if let Some(b64) = args.get("file_data").and_then(Value::as_str) {
             let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)?;
-            let name = args.get("filename").and_then(Value::as_str)
+            let name = args
+                .get("filename")
+                .and_then(Value::as_str)
                 .ok_or_else(|| anyhow::anyhow!("filename required with file_data"))?
                 .to_string();
             (data, name)
@@ -69,7 +71,12 @@ impl Tool for UploadMedia {
 }
 
 fn mime_from_ext(filename: &str) -> String {
-    match filename.rsplit('.').next().map(str::to_lowercase).as_deref() {
+    match filename
+        .rsplit('.')
+        .next()
+        .map(str::to_lowercase)
+        .as_deref()
+    {
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("png") => "image/png",
         Some("gif") => "image/gif",
@@ -79,5 +86,6 @@ fn mime_from_ext(filename: &str) -> String {
         Some("mp4") => "video/mp4",
         Some("mp3") => "audio/mpeg",
         _ => "application/octet-stream",
-    }.to_string()
+    }
+    .to_string()
 }

@@ -23,11 +23,17 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn text(s: impl Into<String>) -> Self {
-        Self { content: vec![ToolContent::Text { text: s.into() }], is_error: None }
+        Self {
+            content: vec![ToolContent::Text { text: s.into() }],
+            is_error: None,
+        }
     }
 
     pub fn error(s: impl Into<String>) -> Self {
-        Self { content: vec![ToolContent::Text { text: s.into() }], is_error: Some(true) }
+        Self {
+            content: vec![ToolContent::Text { text: s.into() }],
+            is_error: Some(true),
+        }
     }
 
     #[allow(dead_code)]
@@ -42,7 +48,10 @@ impl ToolResult {
     }
 
     pub const fn mixed(content: Vec<ToolContent>) -> Self {
-        Self { content, is_error: None }
+        Self {
+            content,
+            is_error: None,
+        }
     }
 
     pub fn text_and_image(text: impl Into<String>, bytes: &[u8], mime_type: &str) -> Self {

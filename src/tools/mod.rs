@@ -1,29 +1,35 @@
-pub mod page;
-pub mod cache;
-pub mod file_io;
-pub mod element;
-pub mod global;
-pub mod settings;
-pub mod visual;
-pub mod schema;
-pub mod seed;
-pub mod post;
 pub mod auth;
-pub mod template;
-pub mod option;
-pub mod inspect;
+pub mod bridge;
+pub mod cache;
+pub mod clone;
 pub mod css_map;
 pub mod editor;
-pub mod clone;
-pub mod bridge;
-pub mod setup_wizard;
+pub mod element;
+pub mod elementor_plan_tools;
+pub mod elementor_planning;
+pub mod elementor_planning_tools;
+pub mod elementor_runtime;
 pub mod ensure_site;
+pub mod file_io;
+pub mod global;
+pub mod inspect;
 pub mod install_config;
-pub mod site;
-pub mod wp_api;
+pub mod laya_decide;
 pub mod media;
+pub mod option;
+pub mod page;
+pub mod post;
+pub mod schema;
+pub mod seed;
 pub mod session_state;
+pub mod settings;
+pub mod setup_wizard;
+pub mod site;
+pub mod template;
+pub mod v4;
+pub mod visual;
 pub mod wp7_mcp;
+pub mod wp_api;
 
 pub use crate::types::Tool;
 
@@ -118,5 +124,29 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
         Box::new(wp7_mcp::Wp7McpCapabilities),
         Box::new(wp7_mcp::Wp7TemplateParts),
         Box::new(wp7_mcp::Wp7BlockRender),
+        Box::new(elementor_runtime::ElementorRuntime),
+        Box::new(elementor_runtime::InspectElementorCapabilities),
+        Box::new(elementor_plan_tools::ApplyElementorPlan),
+        Box::new(elementor_plan_tools::RestoreElementorSnapshot),
+        Box::new(elementor_planning_tools::PlanCssMigration),
+        Box::new(elementor_planning_tools::ConvertElements),
+        Box::new(elementor_planning_tools::ElementorDesignSystem),
+        Box::new(elementor_planning_tools::ExtractElementorPatterns),
+        Box::new(laya_decide::LayaDecideElementor),
+        // Elementor V4 Atomic Design System, Components, Composition, Resources & Publishing
+        Box::new(v4::ManageGlobalVariable),
+        Box::new(v4::ManageClasses),
+        Box::new(v4::ReorderClasses),
+        Box::new(v4::GetDefaultStyles),
+        Box::new(v4::ManageDefaultStyles),
+        Box::new(v4::ListComponents),
+        Box::new(v4::ManageComponent),
+        Box::new(v4::BuildComposition),
+        Box::new(v4::ListResources),
+        Box::new(v4::ReadResource),
+        Box::new(v4::CreatePreviewLink),
+        Box::new(v4::PublishDocument),
+        Box::new(v4::ListSiteParts),
+        Box::new(v4::ManageSiteParts),
     ]
 }

@@ -1,14 +1,14 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
+use super::registry::SchemaRegistry;
+use super::widget_schema::{COMMON_ALIASES, COMMON_SETTINGS, TYPOGRAPHY_KEYS};
 use crate::args::str_arg;
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
-use super::registry::SchemaRegistry;
-use super::widget_schema::{COMMON_SETTINGS, TYPOGRAPHY_KEYS, COMMON_ALIASES};
+use crate::wp::WpClient;
 
 pub struct GetWidgetSchema;
 
@@ -22,13 +22,21 @@ impl Tool for GetWidgetSchema {
         }
     }
 
-    async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let wt = str_arg(&args, "widget_type").ok_or_else(|| anyhow::anyhow!("widget_type required"))?;
+    async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
+        let wt =
+            str_arg(&args, "widget_type").ok_or_else(|| anyhow::anyhow!("widget_type required"))?;
+        let service = crate::elementor::ElementorService::new(wp);
+        if service.capabilities().await.is_ok() {
+            let live = service.element_schema(&wt).await?;
+            return Ok(ToolResult::text(serde_json::to_string_pretty(&live)?));
+        }
         let reg = SchemaRegistry::global();
 
         if let Some(schema) = reg.get(&wt) {
             let valid = reg.valid_keys(schema);
-            let aliases: HashMap<&str, &str> = schema.aliases.iter()
+            let aliases: HashMap<&str, &str> = schema
+                .aliases
+                .iter()
                 .chain(COMMON_ALIASES.iter())
                 .map(|(k, v)| (*k, *v))
                 .collect();
@@ -45,7 +53,10 @@ impl Tool for GetWidgetSchema {
             Ok(ToolResult::text(serde_json::to_string_pretty(&result)?))
         } else {
             let known: Vec<&str> = reg.all().iter().map(|s| s.widget_type).collect();
-            Ok(ToolResult::error(format!("Unknown widget type '{wt}'. Known types: {}", known.join(", "))))
+            Ok(ToolResult::error(format!(
+                "Unknown widget type '{wt}'. Known types: {}",
+                known.join(", ")
+            )))
         }
     }
 }

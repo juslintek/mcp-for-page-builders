@@ -1,11 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct GetSessionState;
 
@@ -20,7 +20,9 @@ impl Tool for GetSessionState {
     }
 
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
 
         let (pid, uptime_secs, pending, recent) = match &wp.session {
             Some(s) => {
@@ -30,13 +32,23 @@ impl Tool for GetSessionState {
             None => (0, 0, vec![], vec![]),
         };
 
-        let pending_json: Vec<Value> = pending.iter().map(|e| json!({
-            "id": e.id, "op": e.op, "site": e.site, "subject": e.subject, "ts": e.ts
-        })).collect();
+        let pending_json: Vec<Value> = pending
+            .iter()
+            .map(|e| {
+                json!({
+                    "id": e.id, "op": e.op, "site": e.site, "subject": e.subject, "ts": e.ts
+                })
+            })
+            .collect();
 
-        let recent_json: Vec<Value> = recent.iter().map(|e| json!({
-            "op": e.op, "site": e.site, "subject": e.subject, "ts": e.ts
-        })).collect();
+        let recent_json: Vec<Value> = recent
+            .iter()
+            .map(|e| {
+                json!({
+                    "op": e.op, "site": e.site, "subject": e.subject, "ts": e.ts
+                })
+            })
+            .collect();
 
         let state = json!({
             "pid": pid,

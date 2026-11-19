@@ -8,21 +8,22 @@
 )]
 
 mod args;
+pub mod cdp;
+mod elementor;
+mod laya;
+mod logging;
+mod mcp;
+mod session;
+mod setup;
+pub mod shadow_realm;
+mod tools;
 mod types;
 mod util;
-mod mcp;
 mod wp;
-mod elementor;
-mod tools;
-mod setup;
-mod session;
-mod logging;
-pub mod cdp;
-pub mod shadow_realm;
 
 use anyhow::Result;
 use futures::FutureExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::panic::AssertUnwindSafe;
 use tracing::info;
 
@@ -59,7 +60,11 @@ async fn main() -> Result<()> {
         let user = env_or("WP_APP_USER", "admin");
         let pass = std::env::var("WP_APP_PASSWORD").unwrap_or_default();
         let url = url.trim_end_matches('/').to_string();
-        site_store.add_site(crate::wp::SiteCredentials { url: url.clone(), user, app_password: pass });
+        site_store.add_site(crate::wp::SiteCredentials {
+            url: url.clone(),
+            user,
+            app_password: pass,
+        });
         site_store.active = Some(url);
     }
 
@@ -70,32 +75,53 @@ async fn main() -> Result<()> {
         Ok(s) => {
             let pending = s.pending_ops();
             if !pending.is_empty() {
-                tracing::warn!("{} pending op(s) from previous session — call get_session_state for details", pending.len());
+                tracing::warn!(
+                    "{} pending op(s) from previous session — call get_session_state for details",
+                    pending.len()
+                );
             }
             Some(std::sync::Arc::new(s))
         }
-        Err(e) => { tracing::warn!("Session acquire failed (non-fatal): {e}"); None }
+        Err(e) => {
+            tracing::warn!("Session acquire failed (non-fatal): {e}");
+            None
+        }
     };
 
-    let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel::<crate::wp::ServerNotification>();
+    let (notify_tx, mut notify_rx) =
+        tokio::sync::mpsc::unbounded_channel::<crate::wp::ServerNotification>();
 
     let mut wp = {
         let s = store.read().await;
         let client = if let Some(creds) = s.get_active() {
             WpClient::from_creds(creds).with_store(store.clone())
         } else {
-            tracing::info!("No active site — starting in CDP-only mode. WordPress tools will prompt for setup.");
+            tracing::info!(
+                "No active site — starting in CDP-only mode. WordPress tools will prompt for setup."
+            );
             WpClient::unconfigured().with_store(store.clone())
         };
         let client = client.with_notifier(notify_tx);
-        if let Some(sess) = session { client.with_session(sess) } else { client }
+        if let Some(sess) = session {
+            client.with_session(sess)
+        } else {
+            client
+        }
     };
 
     let tools = tools::all_tools();
     let mut stdio = Stdio::new();
-    let mode = if wp.is_configured() { wp.base_url().to_string() } else { "CDP-only (no WordPress)".into() };
+    let mode = if wp.is_configured() {
+        wp.base_url().to_string()
+    } else {
+        "CDP-only (no WordPress)".into()
+    };
 
-    info!("mcp-for-page-builders started ({} tools) → {}", tools.len(), mode);
+    info!(
+        "mcp-for-page-builders started ({} tools) → {}",
+        tools.len(),
+        mode
+    );
 
     loop {
         let req = match stdio.read_request().await {
@@ -120,9 +146,15 @@ async fn main() -> Result<()> {
         // which the MCP client would otherwise observe as "the connection
         // closed" with no diagnosable cause.
         let id_for_panic = req.id.clone();
-        let resp = match AssertUnwindSafe(handle(&req.method, &req.params, req.id.clone(), &tools, &wp))
-            .catch_unwind()
-            .await
+        let resp = match AssertUnwindSafe(handle(
+            &req.method,
+            &req.params,
+            req.id.clone(),
+            &tools,
+            &wp,
+        ))
+        .catch_unwind()
+        .await
         {
             Ok(resp) => resp,
             Err(panic_payload) => {
@@ -132,7 +164,11 @@ async fn main() -> Result<()> {
                     .or_else(|| panic_payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "<non-string panic payload>".to_string());
                 tracing::error!("Tool call panicked (recovered, connection stays alive): {msg}");
-                Response::err(id_for_panic, -32603, "Internal error (recovered)".to_string())
+                Response::err(
+                    id_for_panic,
+                    -32603,
+                    "Internal error (recovered)".to_string(),
+                )
             }
         };
 
@@ -156,7 +192,9 @@ async fn main() -> Result<()> {
                 }
                 crate::wp::ServerNotification::ToolsChanged => {
                     info!("Sending notifications/tools/list_changed");
-                    let _ = stdio.write_notification("notifications/tools/list_changed", json!(null)).await;
+                    let _ = stdio
+                        .write_notification("notifications/tools/list_changed", json!(null))
+                        .await;
                 }
             }
         }
@@ -166,43 +204,92 @@ async fn main() -> Result<()> {
 }
 
 async fn handle(
-    method: &str, params: &Value, id: Option<Value>,
-    tools: &[Box<dyn Tool>], wp: &WpClient,
+    method: &str,
+    params: &Value,
+    id: Option<Value>,
+    tools: &[Box<dyn Tool>],
+    wp: &WpClient,
 ) -> Response {
     match method {
-        "initialize" => Response::ok(id, json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": { "tools": { "listChanged": true } },
-            "serverInfo": { "name": "mcp-for-page-builders", "version": env!("CARGO_PKG_VERSION") }
-        })),
-        "tools/list" => {
-            let defs: Vec<_> = tools.iter().map(|t| {
-                let d = t.def();
-                let mut schema = d.input_schema.clone();
-                if !schema.is_object() {
-                    schema = json!({"type": "object", "properties": {}});
-                } else if let Some(obj) = schema.as_object_mut() {
-                    if !obj.contains_key("type") {
-                        obj.insert("type".to_string(), json!("object"));
+        "initialize" => Response::ok(
+            id,
+            json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": { "tools": { "listChanged": true }, "resources": {} },
+                "serverInfo": { "name": "mcp-for-page-builders", "version": env!("CARGO_PKG_VERSION") }
+            }),
+        ),
+        "resources/list" => {
+            let resp = crate::tools::v4::resources::fetch_resources_list(wp).await;
+            Response::ok(id, resp)
+        }
+        "resources/read" => {
+            let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
+            if uri.is_empty() {
+                Response::err(id, -32602, "uri parameter required".to_string())
+            } else {
+                match crate::tools::v4::resources::fetch_resource_by_uri(wp, uri).await {
+                    Ok(res) => {
+                        let text = res
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                            .unwrap_or_else(|| serde_json::to_string_pretty(&res).unwrap_or_default());
+                        let mime = res
+                            .get("mimeType")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("application/json");
+                        Response::ok(
+                            id,
+                            json!({
+                                "contents": [{
+                                    "uri": uri,
+                                    "mimeType": mime,
+                                    "text": text,
+                                }]
+                            }),
+                        )
                     }
-                    if !obj.contains_key("properties") {
-                        obj.insert("properties".to_string(), json!({}));
-                    }
+                    Err(e) => Response::err(id, -32603, format!("{e:#}")),
                 }
-                json!({"name": d.name, "description": d.description, "inputSchema": schema})
-            }).collect();
+            }
+        }
+        "tools/list" => {
+            let defs: Vec<_> = tools
+                .iter()
+                .map(|t| {
+                    let d = t.def();
+                    let mut schema = d.input_schema.clone();
+                    if !schema.is_object() {
+                        schema = json!({"type": "object", "properties": {}});
+                    } else if let Some(obj) = schema.as_object_mut() {
+                        if !obj.contains_key("type") {
+                            obj.insert("type".to_string(), json!("object"));
+                        }
+                        if !obj.contains_key("properties") {
+                            obj.insert("properties".to_string(), json!({}));
+                        }
+                    }
+                    json!({"name": d.name, "description": d.description, "inputSchema": schema})
+                })
+                .collect();
             Response::ok(id, json!({"tools": defs}))
         }
         "tools/call" => {
             let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             match tools.iter().find(|t| t.def().name == name) {
                 Some(t) => {
                     info!("Calling tool: {name}");
                     match t.run(args, wp).await {
                         Ok(result) => match serde_json::to_value(result) {
                             Ok(v) => Response::ok(id, v),
-                            Err(e) => Response::err(id, -32603, format!("Serialization error: {e}")),
+                            Err(e) => {
+                                Response::err(id, -32603, format!("Serialization error: {e}"))
+                            }
                         },
                         Err(e) => {
                             let msg = format!("{e:#}");
@@ -223,7 +310,11 @@ async fn handle(
                             };
                             match serde_json::to_value(result) {
                                 Ok(v) => Response::ok(id, v),
-                                Err(ser_err) => Response::err(id, -32603, format!("Serialization error: {ser_err}")),
+                                Err(ser_err) => Response::err(
+                                    id,
+                                    -32603,
+                                    format!("Serialization error: {ser_err}"),
+                                ),
                             }
                         }
                     }

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::args::str_arg;
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct ListPages;
 
@@ -27,12 +27,24 @@ impl Tool for ListPages {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let per_page = args.get("per_page").and_then(serde_json::Value::as_u64).unwrap_or(20);
-        let page = args.get("page").and_then(serde_json::Value::as_u64).unwrap_or(1);
+        let per_page = args
+            .get("per_page")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(20);
+        let page = args
+            .get("page")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1);
         let status = str_arg(&args, "status").unwrap_or_else(|| "any".into());
 
-        let result = wp.get(&format!("wp/v2/pages?per_page={per_page}&page={page}&status={status}")).await?;
-        let pages = result.as_array().ok_or_else(|| anyhow::anyhow!("Unexpected response"))?;
+        let result = wp
+            .get(&format!(
+                "wp/v2/pages?per_page={per_page}&page={page}&status={status}"
+            ))
+            .await?;
+        let pages = result
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Unexpected response"))?;
 
         let mut lines = vec![format!("Found {} pages:", pages.len())];
         for p in pages {

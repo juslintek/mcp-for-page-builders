@@ -76,9 +76,10 @@ pub fn init() -> anyhow::Result<WorkerGuard> {
 fn install_panic_hook() {
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
-        let location = info
-            .location()
-            .map_or_else(|| "<unknown location>".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        let location = info.location().map_or_else(
+            || "<unknown location>".to_string(),
+            |l| format!("{}:{}:{}", l.file(), l.line(), l.column()),
+        );
         let payload = info.payload();
         let message = payload
             .downcast_ref::<&str>()

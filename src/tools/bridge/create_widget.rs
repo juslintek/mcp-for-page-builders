@@ -1,10 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct CreateWidget;
 
@@ -29,30 +29,76 @@ impl Tool for CreateWidget {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let name = args["name"].as_str().ok_or_else(|| anyhow::anyhow!("name required"))?;
-        let label = args["label"].as_str().ok_or_else(|| anyhow::anyhow!("label required"))?;
-        let icon = args.get("icon").and_then(|v| v.as_str()).unwrap_or("eicon-code");
-        let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("general");
+        let name = args["name"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("name required"))?;
+        let label = args["label"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("label required"))?;
+        let icon = args
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .unwrap_or("eicon-code");
+        let category = args
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("general");
         let controls = args.get("controls").and_then(|v| v.as_array());
         let render_html = args.get("render_html").and_then(|v| v.as_str());
 
         let class_name = to_class_name(name);
-        let php = generate_widget_php(name, label, icon, category, &class_name, controls, render_html);
+        let php = generate_widget_php(
+            name,
+            label,
+            icon,
+            category,
+            &class_name,
+            controls,
+            render_html,
+        );
 
-        if wp.post("mcp-for-page-builders/v1/write-mu-plugin", &json!({"filename": format!("emcp-widget-{name}"), "php_code": php})).await.is_ok() {
-            return Ok(ToolResult::text(format!("Widget '{label}' deployed to mu-plugins/emcp-widget-{name}.php\nRefresh the Elementor editor to see it.")));
+        if wp
+            .post(
+                "mcp-for-page-builders/v1/write-mu-plugin",
+                &json!({"filename": format!("emcp-widget-{name}"), "php_code": php}),
+            )
+            .await
+            .is_ok()
+        {
+            return Ok(ToolResult::text(format!(
+                "Widget '{label}' deployed to mu-plugins/emcp-widget-{name}.php\nRefresh the Elementor editor to see it."
+            )));
         }
 
-        Ok(ToolResult::text(format!("Bridge not available. Run `install_bridge` first, or save this PHP manually to `wp-content/mu-plugins/emcp-widget-{name}.php`:\n\n```php\n{php}\n```")))
+        Ok(ToolResult::text(format!(
+            "Bridge not available. Run `install_bridge` first, or save this PHP manually to `wp-content/mu-plugins/emcp-widget-{name}.php`:\n\n```php\n{php}\n```"
+        )))
     }
 }
 
 fn to_class_name(slug: &str) -> String {
-    slug.split('-').map(|w| { let mut c = w.chars(); match c.next() { None => String::new(), Some(f) => f.to_uppercase().to_string() + c.as_str() } }).collect::<Vec<_>>().join("_")
+    slug.split('-')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().to_string() + c.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("_")
 }
 
 #[allow(clippy::match_same_arms)]
-fn generate_widget_php(name: &str, label: &str, icon: &str, category: &str, class_name: &str, controls: Option<&Vec<Value>>, render_html: Option<&str>) -> String {
+fn generate_widget_php(
+    name: &str,
+    label: &str,
+    icon: &str,
+    category: &str,
+    class_name: &str,
+    controls: Option<&Vec<Value>>,
+    render_html: Option<&str>,
+) -> String {
     let mut ctrl_php = String::new();
     if let Some(ctrls) = controls {
         for ctrl in ctrls {
@@ -61,11 +107,16 @@ fn generate_widget_php(name: &str, label: &str, icon: &str, category: &str, clas
             let clabel = ctrl["label"].as_str().unwrap_or(cname);
             let cdefault = ctrl["default"].as_str().unwrap_or("");
             let elementor_type = match ctype {
-                "text" => "\\Elementor\\Controls_Manager::TEXT", "textarea" => "\\Elementor\\Controls_Manager::TEXTAREA",
-                "number" => "\\Elementor\\Controls_Manager::NUMBER", "select" => "\\Elementor\\Controls_Manager::SELECT",
-                "color" => "\\Elementor\\Controls_Manager::COLOR", "slider" => "\\Elementor\\Controls_Manager::SLIDER",
-                "switcher" => "\\Elementor\\Controls_Manager::SWITCHER", "url" => "\\Elementor\\Controls_Manager::URL",
-                "media" => "\\Elementor\\Controls_Manager::MEDIA", _ => "\\Elementor\\Controls_Manager::TEXT",
+                "text" => "\\Elementor\\Controls_Manager::TEXT",
+                "textarea" => "\\Elementor\\Controls_Manager::TEXTAREA",
+                "number" => "\\Elementor\\Controls_Manager::NUMBER",
+                "select" => "\\Elementor\\Controls_Manager::SELECT",
+                "color" => "\\Elementor\\Controls_Manager::COLOR",
+                "slider" => "\\Elementor\\Controls_Manager::SLIDER",
+                "switcher" => "\\Elementor\\Controls_Manager::SWITCHER",
+                "url" => "\\Elementor\\Controls_Manager::URL",
+                "media" => "\\Elementor\\Controls_Manager::MEDIA",
+                _ => "\\Elementor\\Controls_Manager::TEXT",
             };
             #[allow(clippy::format_push_string)]
             ctrl_php.push_str(&format!("\n\t\t$this->add_control('{cname}', [\n\t\t\t'label' => esc_html__('{clabel}', 'mcp-bridge'),\n\t\t\t'type' => {elementor_type},\n\t\t\t'default' => '{cdefault}',\n\t\t]);\n"));
@@ -76,14 +127,18 @@ fn generate_widget_php(name: &str, label: &str, icon: &str, category: &str, clas
         if let Some(ctrls) = controls {
             for ctrl in ctrls {
                 let cname = ctrl["name"].as_str().unwrap_or("field");
-                processed = processed.replace(&format!("{{{{{cname}}}}}"), &format!("<?php echo esc_html($settings['{cname}']); ?>"));
+                processed = processed.replace(
+                    &format!("{{{{{cname}}}}}"),
+                    &format!("<?php echo esc_html($settings['{cname}']); ?>"),
+                );
             }
         }
         format!("\n\t\t$settings = $this->get_settings_for_display();\n\t\t?>{processed}<?php\n")
     } else {
         "\n\t\t$settings = $this->get_settings_for_display();\n\t\techo '<div class=\"emcp-widget\">';\n\t\tforeach ($settings as $key => $value) {\n\t\t\tif (strpos($key, '_') === 0) continue;\n\t\t\tif (is_string($value) && $value !== '') {\n\t\t\t\techo '<div>' . esc_html($value) . '</div>';\n\t\t\t}\n\t\t}\n\t\techo '</div>';\n".to_string()
     };
-    format!(r"<?php
+    format!(
+        r"<?php
 /**
  * Custom Widget: {label}
  * Generated by MCP Bridge for Page Builders
@@ -114,5 +169,6 @@ add_action('elementor/widgets/register', function($widgets_manager) {{
 
     $widgets_manager->register(new \EMCP_{class_name}_Widget());
 }});
-")
+"
+    )
 }

@@ -1,12 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::args::{str_arg, u64_arg};
 use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct FindElements;
 
@@ -30,7 +30,8 @@ impl Tool for FindElements {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
+        let page_id =
+            u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
         let wt = str_arg(&args, "widget_type");
         let sk = str_arg(&args, "setting_key");
         let sv = str_arg(&args, "setting_value");

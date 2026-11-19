@@ -55,7 +55,8 @@ pub fn config_path(wp_url: &str) -> PathBuf {
 }
 
 pub fn config_dir() -> PathBuf {
-    std::env::var("HOME").map_or_else(|_| PathBuf::from("."), PathBuf::from)
+    std::env::var("HOME")
+        .map_or_else(|_| PathBuf::from("."), PathBuf::from)
         .join(".config")
         .join("mcp-for-page-builders")
 }
@@ -66,8 +67,7 @@ pub fn config_dir() -> PathBuf {
 /// `MCP_LOG_DIR` (used by tests to isolate concurrent server instances
 /// from sharing — and racing on — the same log directory).
 pub fn log_dir() -> PathBuf {
-    std::env::var("MCP_LOG_DIR")
-        .map_or_else(|_| config_dir().join("logs"), PathBuf::from)
+    std::env::var("MCP_LOG_DIR").map_or_else(|_| config_dir().join("logs"), PathBuf::from)
 }
 
 /// Returns the project root if running from a local dev build (target/release or target/debug).

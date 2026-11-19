@@ -1,17 +1,21 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct GetKitDefaults;
 
 #[async_trait]
 impl Tool for GetKitDefaults {
     fn def(&self) -> ToolDef {
-        ToolDef { name: "get_kit_defaults", description: "Get Elementor kit element defaults — the default settings applied to all widgets of each type.", input_schema: json!({ "type": "object", "properties": {} }) }
+        ToolDef {
+            name: "get_kit_defaults",
+            description: "Get Elementor kit element defaults — the default settings applied to all widgets of each type.",
+            input_schema: json!({ "type": "object", "properties": {} }),
+        }
     }
     async fn run(&self, _args: Value, wp: &WpClient) -> Result<ToolResult> {
         let defaults = wp.get("elementor/v1/kit-elements-defaults").await?;

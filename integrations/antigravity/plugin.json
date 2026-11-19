@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "mcp-for-page-builders",
+  "description": "Local MCP server for WordPress page builders."
+}

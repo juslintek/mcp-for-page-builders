@@ -1,12 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::args::{str_arg, u64_arg, usize_arg};
 use crate::elementor::{Element, ElementorService};
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct AddElement;
 
@@ -18,9 +18,10 @@ impl Tool for AddElement {
             description: "Insert a new element (widget/container) into a page at a specific position. ID auto-generated if missing.\n\nWorkflow: Use clone_element output or manually constructed JSON. Call get_element_tree first to find the right parent_id and position.",
             input_schema: json!({
                 "type": "object",
-                "required": ["page_id", "element"],
+                "required": ["page_id", "expected_revision", "element"],
                 "properties": {
                     "page_id": { "type": "integer" },
+                    "expected_revision": { "type": "string", "description": "Revision returned by get_element_tree" },
                     "parent_id": { "type": "string", "description": "Parent element ID. Omit for root level." },
                     "position": { "type": "integer", "description": "Index to insert at (0-based). Defaults to end." },
                     "element": { "type": "object", "description": "Full element JSON with elType, settings, etc. ID auto-generated if missing." }
@@ -30,24 +31,37 @@ impl Tool for AddElement {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
+        let page_id =
+            u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
         let parent_id = str_arg(&args, "parent_id");
         let position = usize_arg(&args, "position").unwrap_or(usize::MAX);
 
-        let el_json = args.get("element").ok_or_else(|| anyhow::anyhow!("element required"))?;
+        let el_json = args
+            .get("element")
+            .ok_or_else(|| anyhow::anyhow!("element required"))?;
         let mut new_el: Element = serde_json::from_value(el_json.clone())?;
         if new_el.id.is_empty() {
             new_el.id = crate::elementor::generate_id();
         }
         let new_id = new_el.id.clone();
 
+        let expected_revision =
+            crate::args::str_arg(&args, "expected_revision").ok_or_else(|| {
+                anyhow::anyhow!("expected_revision required; read the page tree first")
+            })?;
         let svc = ElementorService::new(wp);
         let mut tree = svc.get_tree(page_id).await?;
+        ElementorService::require_revision(&tree, &expected_revision)?;
         if !tree.insert(parent_id.as_deref(), position, new_el) {
-            return Ok(ToolResult::error(format!("Parent {} not found", parent_id.unwrap_or_default())));
+            return Ok(ToolResult::error(format!(
+                "Parent {} not found",
+                parent_id.unwrap_or_default()
+            )));
         }
         svc.save_tree(page_id, &tree).await?;
 
-        Ok(ToolResult::text(format!("Added element {new_id} to page {page_id}")))
+        Ok(ToolResult::text(format!(
+            "Added element {new_id} to page {page_id}"
+        )))
     }
 }

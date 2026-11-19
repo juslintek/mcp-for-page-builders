@@ -1,12 +1,12 @@
-use std::fmt::Write;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::fmt::Write;
 
+use super::Tool;
 use crate::cdp;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
-use super::Tool;
 
 /// Inspects a live DOM element via CDP `Runtime.evaluate`.
 ///
@@ -42,16 +42,33 @@ impl Tool for InspectPage {
     }
 
     async fn run(&self, args: Value, _wp: &WpClient) -> Result<ToolResult> {
-        let url = args["url"].as_str().ok_or_else(|| anyhow::anyhow!("url required"))?;
-        let selector = args["selector"].as_str().ok_or_else(|| anyhow::anyhow!("selector required"))?;
-        let max_depth = args.get("max_depth").and_then(serde_json::Value::as_u64).unwrap_or(3);
+        let url = args["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("url required"))?;
+        let selector = args["selector"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("selector required"))?;
+        let max_depth = args
+            .get("max_depth")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(3);
 
-        let custom_props: Option<Vec<String>> = args.get("properties")
+        let custom_props: Option<Vec<String>> = args
+            .get("properties")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
 
         let props_js = custom_props
-            .unwrap_or_else(|| DEFAULT_PROPS.iter().map(std::string::ToString::to_string).collect())
+            .unwrap_or_else(|| {
+                DEFAULT_PROPS
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect()
+            })
             .iter()
             .map(|p| format!("'{p}'"))
             .collect::<Vec<_>>()
@@ -59,11 +76,17 @@ impl Tool for InspectPage {
 
         let js = build_inspect_js(selector, &props_js, max_depth);
 
-        let (page, warning) = cdp::open_page_with_js(url, 1440, 900,
+        let (page, warning) = cdp::open_page_with_js(
+            url,
+            1440,
+            900,
             args["pre_js"].as_str(),
             args.get("wait_ms").and_then(Value::as_u64).unwrap_or(0),
-        ).await?;
-        let result: String = page.evaluate(js).await
+        )
+        .await?;
+        let result: String = page
+            .evaluate(js)
+            .await
             .context("CDP evaluate failed")?
             .into_value()
             .context("Failed to get JS result")?;
@@ -73,7 +96,9 @@ impl Tool for InspectPage {
             anyhow::bail!("{}", err.as_str().unwrap_or("unknown error"));
         }
         let mut text = serde_json::to_string_pretty(&val)?;
-        if let Some(w) = warning { let _ = write!(text, "\n⚠ {w}"); }
+        if let Some(w) = warning {
+            let _ = write!(text, "\n⚠ {w}");
+        }
         Ok(ToolResult::text(text))
     }
 }
@@ -88,12 +113,43 @@ fn build_inspect_js(selector: &str, props_js: &str, max_depth: u64) -> String {
 }
 
 const DEFAULT_PROPS: &[&str] = &[
-    "width", "height", "min-height", "max-width",
-    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
-    "background-color", "background-image", "color",
-    "font-size", "font-weight", "font-family", "line-height", "text-transform", "letter-spacing",
-    "display", "flex-direction", "justify-content", "align-items", "gap",
-    "position", "z-index", "top", "left", "right", "bottom",
-    "border", "border-radius", "box-shadow", "opacity", "overflow",
+    "width",
+    "height",
+    "min-height",
+    "max-width",
+    "padding",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "margin",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "background-color",
+    "background-image",
+    "color",
+    "font-size",
+    "font-weight",
+    "font-family",
+    "line-height",
+    "text-transform",
+    "letter-spacing",
+    "display",
+    "flex-direction",
+    "justify-content",
+    "align-items",
+    "gap",
+    "position",
+    "z-index",
+    "top",
+    "left",
+    "right",
+    "bottom",
+    "border",
+    "border-radius",
+    "box-shadow",
+    "opacity",
+    "overflow",
 ];

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use super::Tool;
 use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
 use crate::wp::WpClient;
-use super::Tool;
 
 pub struct ClearCache;
 

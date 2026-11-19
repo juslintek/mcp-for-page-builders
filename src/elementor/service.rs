@@ -1,8 +1,8 @@
 use serde_json::Value;
 
-use crate::wp::WpClient;
-use super::ops::{get_page_elements, set_page_elements};
+use super::ops::{get_page_document, set_page_elements_checked};
 use super::tree::ElementTree;
+use crate::wp::WpClient;
 
 /// Service for Elementor-specific operations that require a `WordPress` API connection.
 pub struct ElementorService<'a> {
@@ -15,58 +15,95 @@ impl<'a> ElementorService<'a> {
     }
 
     pub async fn get_tree(&self, page_id: u64) -> anyhow::Result<ElementTree> {
-        let elements = get_page_elements(self.wp, page_id).await?;
-        Ok(ElementTree(elements))
+        let document = get_page_document(self.wp, page_id).await?;
+        Ok(ElementTree {
+            elements: super::ops::parse_data(&document.raw)?,
+            revision: Some(document.revision),
+        })
     }
 
     pub async fn save_tree(&self, page_id: u64, tree: &ElementTree) -> anyhow::Result<()> {
-        set_page_elements(self.wp, page_id, &tree.0).await
+        let revision = tree.revision.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("Page revision is unavailable; read the page tree again")
+        })?;
+        set_page_elements_checked(
+            self.wp,
+            page_id,
+            &tree.elements,
+            revision,
+            &format!("mcp-{}", super::ops::generate_id()),
+        )
+        .await
+    }
+
+    pub fn require_revision(tree: &ElementTree, expected: &str) -> anyhow::Result<()> {
+        let actual = tree.revision.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("Page revision is unavailable; read the page tree again")
+        })?;
+        if actual != expected {
+            anyhow::bail!(
+                "Stale page revision: expected {expected}, current revision is {actual}; read the page tree again"
+            );
+        }
+        Ok(())
+    }
+
+    pub async fn save_elements_checked(
+        &self,
+        page_id: u64,
+        elements: &[crate::types::Element],
+        revision: &str,
+        operation_id: &str,
+    ) -> anyhow::Result<()> {
+        set_page_elements_checked(self.wp, page_id, elements, revision, operation_id).await
+    }
+
+    pub async fn restore_tree(
+        &self,
+        page_id: u64,
+        operation_id: &str,
+        expected_revision: &str,
+    ) -> anyhow::Result<Value> {
+        let result = self
+            .wp
+            .post(
+                &format!("mcp-for-page-builders/v1/document/{page_id}/restore"),
+                &serde_json::json!({
+                    "operation_id": operation_id,
+                    "expected_revision": expected_revision,
+                }),
+            )
+            .await?;
+        if result["restored"] != true || result["readback_verified"] != true {
+            anyhow::bail!(
+                "Restore returned an incomplete result: {}",
+                serde_json::to_string(&result)?
+            );
+        }
+        Ok(result)
+    }
+
+    pub async fn capabilities(&self) -> anyhow::Result<Value> {
+        self.wp.get("mcp-for-page-builders/v1/capabilities").await
+    }
+
+    pub async fn runtime(&self) -> anyhow::Result<Value> {
+        self.wp.get("mcp-for-page-builders/v1/runtime").await
+    }
+
+    pub async fn element_schema(&self, widget_type: &str) -> anyhow::Result<Value> {
+        self.wp
+            .get(&format!(
+                "mcp-for-page-builders/v1/element-schema/{widget_type}"
+            ))
+            .await
+    }
+
+    pub async fn style_schema(&self) -> anyhow::Result<Value> {
+        self.wp.get("mcp-for-page-builders/v1/style-schema").await
     }
 
     pub async fn clear_cache(&self) -> anyhow::Result<()> {
         self.wp.clear_elementor_cache().await
-    }
-
-    pub async fn set_template_conditions(
-        &self,
-        template_id: u64,
-        template_type: &str,
-        conditions: &[String],
-    ) -> anyhow::Result<()> {
-        let cond_values: Vec<Value> = conditions.iter().map(|c| Value::String(c.clone())).collect();
-
-        self.wp
-            .post(
-                &format!("wp/v2/elementor_library/{template_id}"),
-                &serde_json::json!({ "meta": { "_elementor_conditions": cond_values } }),
-            )
-            .await?;
-
-        let current = self
-            .wp
-            .get("mcp-for-page-builders/v1/option/elementor_pro_theme_builder_conditions")
-            .await
-            .unwrap_or_else(|_| serde_json::json!({}));
-
-        let mut map = current.as_object().cloned().unwrap_or_default();
-
-        let type_entry = map
-            .entry(template_type.to_string())
-            .or_insert_with(|| serde_json::json!({}));
-
-        if let Some(obj) = type_entry.as_object_mut() {
-            obj.insert(template_id.to_string(), Value::Array(cond_values));
-        }
-
-        self.wp
-            .post(
-                "mcp-for-page-builders/v1/option/elementor_pro_theme_builder_conditions",
-                &Value::Object(map),
-            )
-            .await
-            .ok();
-
-        self.clear_cache().await?;
-        Ok(())
     }
 }

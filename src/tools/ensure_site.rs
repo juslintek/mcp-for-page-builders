@@ -1,26 +1,45 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::args::str_arg;
 use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
 use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct EnsureSite;
 
 #[derive(Debug)]
-pub enum EnvType { Ddev, Lando, Local, Remote }
+pub enum EnvType {
+    Ddev,
+    Lando,
+    Local,
+    Remote,
+}
 
 impl std::fmt::Display for EnvType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self { Self::Ddev => write!(f, "ddev"), Self::Lando => write!(f, "lando"), Self::Local => write!(f, "local"), Self::Remote => write!(f, "remote") }
+        match self {
+            Self::Ddev => write!(f, "ddev"),
+            Self::Lando => write!(f, "lando"),
+            Self::Local => write!(f, "local"),
+            Self::Remote => write!(f, "remote"),
+        }
     }
 }
 
 /// Detect environment type from URL hostname.
 pub fn detect_env(url: &str) -> (EnvType, Option<String>) {
-    let host = url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("").split(':').next().unwrap_or("");
+    let host = url
+        .split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
     if host.ends_with(".ddev.site") {
         let project = host.trim_end_matches(".ddev.site").to_string();
         (EnvType::Ddev, Some(project))
@@ -48,13 +67,19 @@ async fn ddev_ensure(project: &str) -> Result<Vec<String>> {
     let mut issues = Vec::new();
 
     // Check if ddev is available
-    let which = tokio::process::Command::new("which").arg("ddev").output().await;
+    let which = tokio::process::Command::new("which")
+        .arg("ddev")
+        .output()
+        .await;
     if which.is_err() || !which.unwrap().status.success() {
         anyhow::bail!("ddev not found in PATH");
     }
 
     // Check project status
-    let list = tokio::process::Command::new("ddev").arg("list").output().await?;
+    let list = tokio::process::Command::new("ddev")
+        .arg("list")
+        .output()
+        .await?;
     let list_out = String::from_utf8_lossy(&list.stdout);
 
     // Find the project line — ddev list output has project names in the table
@@ -65,7 +90,9 @@ async fn ddev_ensure(project: &str) -> Result<Vec<String>> {
 
     match project_line {
         None => {
-            issues.push(format!("DDEV project '{project}' not found. Available projects shown in ddev list."));
+            issues.push(format!(
+                "DDEV project '{project}' not found. Available projects shown in ddev list."
+            ));
         }
         Some(line) => {
             if line.contains("stopped") || line.contains("paused") {
@@ -73,7 +100,8 @@ async fn ddev_ensure(project: &str) -> Result<Vec<String>> {
                 // Find the project directory from ddev list or try starting by name
                 let start = tokio::process::Command::new("ddev")
                     .args(["start", project])
-                    .output().await?;
+                    .output()
+                    .await?;
                 if start.status.success() {
                     issues.push("DDEV project started successfully.".into());
                 } else {
@@ -90,11 +118,17 @@ async fn ddev_ensure(project: &str) -> Result<Vec<String>> {
 
 async fn lando_ensure(project: &str) -> Result<Vec<String>> {
     let mut issues = Vec::new();
-    let which = tokio::process::Command::new("which").arg("lando").output().await;
+    let which = tokio::process::Command::new("which")
+        .arg("lando")
+        .output()
+        .await;
     if which.is_err() || !which.unwrap().status.success() {
         anyhow::bail!("lando not found in PATH");
     }
-    let list = tokio::process::Command::new("lando").arg("list").output().await?;
+    let list = tokio::process::Command::new("lando")
+        .arg("list")
+        .output()
+        .await?;
     let out = String::from_utf8_lossy(&list.stdout);
     if !out.to_lowercase().contains(project) {
         issues.push(format!("Lando project '{project}' not found."));
@@ -121,18 +155,14 @@ impl Tool for EnsureSite {
 
         // Environment-specific boot
         match (&env_type, &project) {
-            (EnvType::Ddev, Some(p)) => {
-                match ddev_ensure(p).await {
-                    Ok(i) => issues.extend(i),
-                    Err(e) => issues.push(format!("DDEV check failed: {e}")),
-                }
-            }
-            (EnvType::Lando, Some(p)) => {
-                match lando_ensure(p).await {
-                    Ok(i) => issues.extend(i),
-                    Err(e) => issues.push(format!("Lando check failed: {e}")),
-                }
-            }
+            (EnvType::Ddev, Some(p)) => match ddev_ensure(p).await {
+                Ok(i) => issues.extend(i),
+                Err(e) => issues.push(format!("DDEV check failed: {e}")),
+            },
+            (EnvType::Lando, Some(p)) => match lando_ensure(p).await {
+                Ok(i) => issues.extend(i),
+                Err(e) => issues.push(format!("Lando check failed: {e}")),
+            },
             _ => {}
         }
 

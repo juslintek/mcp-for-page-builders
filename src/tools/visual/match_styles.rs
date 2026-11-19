@@ -1,23 +1,48 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::args::{str_arg, u64_arg};
 use crate::cdp;
 use crate::elementor::ElementorService;
 use crate::mcp::{ToolDef, ToolResult};
+use crate::tools::Tool;
 use crate::tools::css_map::map_css_to_elementor;
 use crate::wp::WpClient;
-use crate::tools::Tool;
 
 const EXTRACT_JS_PROPS: &[&str] = &[
-    "background-color", "color", "font-size", "font-weight", "font-family",
-    "line-height", "letter-spacing", "text-transform",
-    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
-    "border", "border-radius", "gap", "display", "flex-direction",
-    "justify-content", "align-items", "width", "height", "min-height",
-    "max-width", "opacity", "box-shadow", "overflow",
+    "background-color",
+    "color",
+    "font-size",
+    "font-weight",
+    "font-family",
+    "line-height",
+    "letter-spacing",
+    "text-transform",
+    "padding",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "margin",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "border",
+    "border-radius",
+    "gap",
+    "display",
+    "flex-direction",
+    "justify-content",
+    "align-items",
+    "width",
+    "height",
+    "min-height",
+    "max-width",
+    "opacity",
+    "box-shadow",
+    "overflow",
 ];
 
 pub struct MatchStyles;
@@ -43,40 +68,60 @@ impl Tool for MatchStyles {
     }
 
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
-        let ref_url = str_arg(&args, "reference_url").ok_or_else(|| anyhow::anyhow!("reference_url required"))?;
-        let ref_sel = str_arg(&args, "reference_selector").ok_or_else(|| anyhow::anyhow!("reference_selector required"))?;
-        let page_id = u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
-        let eid = str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
+        let ref_url = str_arg(&args, "reference_url")
+            .ok_or_else(|| anyhow::anyhow!("reference_url required"))?;
+        let ref_sel = str_arg(&args, "reference_selector")
+            .ok_or_else(|| anyhow::anyhow!("reference_selector required"))?;
+        let page_id =
+            u64_arg(&args, "page_id").ok_or_else(|| anyhow::anyhow!("page_id required"))?;
+        let eid =
+            str_arg(&args, "element_id").ok_or_else(|| anyhow::anyhow!("element_id required"))?;
         let verify = args.get("verify").and_then(Value::as_bool).unwrap_or(false);
 
         // 1. Extract computed styles from reference
-        let props_js = EXTRACT_JS_PROPS.iter().map(|p| format!("'{p}'")).collect::<Vec<_>>().join(",");
+        let props_js = EXTRACT_JS_PROPS
+            .iter()
+            .map(|p| format!("'{p}'"))
+            .collect::<Vec<_>>()
+            .join(",");
         let js = format!(
             r"(()=>{{const el=document.querySelector('{ref_sel}');if(!el)return JSON.stringify({{error:'not found: {ref_sel}'}});const s=getComputedStyle(el);const r={{}};[{props_js}].forEach(p=>{{const v=s.getPropertyValue(p);if(v&&v!=='none'&&v!=='normal'&&v!=='auto'&&v!=='0px'&&v!=='rgba(0, 0, 0, 0)')r[p]=v}});return JSON.stringify(r)}})()"
         );
 
         let page = cdp::open_page(&ref_url, 1440, 900).await?;
-        let result: String = page.evaluate(js).await.context("CDP evaluate failed")?.into_value()?;
+        let result: String = page
+            .evaluate(js)
+            .await
+            .context("CDP evaluate failed")?
+            .into_value()?;
         let css_val: Value = serde_json::from_str(&result)?;
         if let Some(err) = css_val.get("error") {
             anyhow::bail!("{}", err.as_str().unwrap_or("extraction failed"));
         }
-        let css_map = css_val.as_object().ok_or_else(|| anyhow::anyhow!("Expected CSS object"))?;
+        let css_map = css_val
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("Expected CSS object"))?;
 
         // 2. Convert CSS to Elementor settings
         let (settings, unmapped) = map_css_to_elementor(css_map);
 
         if settings.is_empty() {
-            return Ok(ToolResult::text("No mappable CSS properties found on the reference element."));
+            return Ok(ToolResult::text(
+                "No mappable CSS properties found on the reference element.",
+            ));
         }
 
         // 3. Apply to target element
         let svc = ElementorService::new(wp);
         let mut tree = svc.get_tree(page_id).await?;
         let new_settings = Value::Object(settings.clone());
-        let found = tree.mutate(&eid, |el| crate::elementor::merge_settings(&mut el.settings, &new_settings));
+        let found = tree.mutate(&eid, |el| {
+            crate::elementor::merge_settings(&mut el.settings, &new_settings)
+        });
         if !found {
-            return Ok(ToolResult::error(format!("Element {eid} not found on page {page_id}")));
+            return Ok(ToolResult::error(format!(
+                "Element {eid} not found on page {page_id}"
+            )));
         }
         svc.save_tree(page_id, &tree).await?;
 
@@ -92,12 +137,17 @@ impl Tool for MatchStyles {
         if verify {
             let target_page = wp.get(&format!("wp/v2/pages/{page_id}")).await?;
             if let Some(link) = target_page["link"].as_str() {
-                output.insert("verify_hint".into(), json!(format!(
-                    "Run visual_diff with url_a={ref_url} url_b={link} to compare results"
-                )));
+                output.insert(
+                    "verify_hint".into(),
+                    json!(format!(
+                        "Run visual_diff with url_a={ref_url} url_b={link} to compare results"
+                    )),
+                );
             }
         }
 
-        Ok(ToolResult::text(serde_json::to_string_pretty(&Value::Object(output))?))
+        Ok(ToolResult::text(serde_json::to_string_pretty(
+            &Value::Object(output),
+        )?))
     }
 }

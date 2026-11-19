@@ -1,0 +1,11 @@
+{
+  "name": "mcp-for-page-builders",
+  "version": "0.2.0",
+  "description": "Local MCP server for WordPress page builders.",
+  "mcpServers": {
+    "mcp-for-page-builders": {
+      "command": "${extensionPath}/bin/mcp-for-page-builders",
+      "cwd": "${extensionPath}"
+    }
+  }
+}

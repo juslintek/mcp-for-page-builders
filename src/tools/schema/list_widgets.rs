@@ -1,12 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::mcp::{ToolDef, ToolResult};
-use crate::wp::WpClient;
-use crate::tools::Tool;
 use super::registry::SchemaRegistry;
 use super::widget_schema::COMMON_SETTINGS;
+use crate::mcp::{ToolDef, ToolResult};
+use crate::tools::Tool;
+use crate::wp::WpClient;
 
 pub struct ListWidgets;
 
@@ -24,10 +24,18 @@ impl Tool for ListWidgets {
         let schemas = SchemaRegistry::global().all();
         let mut lines = vec![format!("{} widget schemas available:", schemas.len())];
         for s in schemas {
-            lines.push(format!("  {} [{}] — {} settings", s.widget_type, s.category, s.settings.len()));
+            lines.push(format!(
+                "  {} [{}] — {} settings",
+                s.widget_type,
+                s.category,
+                s.settings.len()
+            ));
         }
         lines.push(String::new());
-        lines.push(format!("Plus {} common settings shared by all widgets.", COMMON_SETTINGS.len()));
+        lines.push(format!(
+            "Plus {} common settings shared by all widgets.",
+            COMMON_SETTINGS.len()
+        ));
         Ok(ToolResult::text(lines.join("\n")))
     }
 }
