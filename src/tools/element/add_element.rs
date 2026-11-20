@@ -58,10 +58,11 @@ impl Tool for AddElement {
                 parent_id.unwrap_or_default()
             )));
         }
-        svc.save_tree(page_id, &tree).await?;
+        let cache = svc.save_tree(page_id, &tree).await?;
 
         Ok(ToolResult::text(format!(
-            "Added element {new_id} to page {page_id}"
+            "Added element {new_id} to page {page_id}{}",
+            cache.summary_line()
         )))
     }
 }

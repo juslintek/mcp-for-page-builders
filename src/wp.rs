@@ -373,6 +373,31 @@ impl WpClient {
         self.delete("elementor/v1/cache").await?;
         Ok(())
     }
+
+    /// Probe HTTP response headers on the site root (or given URL) without failing on non-2xx.
+    pub async fn probe_headers(&self, url: &str) -> Result<reqwest::header::HeaderMap> {
+        let head_resp = self
+            .http
+            .head(url)
+            .timeout(Duration::from_secs(4))
+            .send()
+            .await;
+        match head_resp {
+            Ok(resp) if resp.status() != reqwest::StatusCode::METHOD_NOT_ALLOWED => {
+                Ok(resp.headers().clone())
+            }
+            _ => {
+                let get_resp = self
+                    .http
+                    .get(url)
+                    .timeout(Duration::from_secs(4))
+                    .send()
+                    .await
+                    .context("HTTP header probe failed")?;
+                Ok(get_resp.headers().clone())
+            }
+        }
+    }
 }
 
 pub(crate) fn http_client_builder() -> anyhow::Result<reqwest::ClientBuilder> {

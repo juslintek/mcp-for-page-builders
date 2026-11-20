@@ -75,12 +75,13 @@ impl Tool for UpdateElement {
                 &format!("page:{page_id}/el:{eid}"),
             )
         });
-        svc.save_tree(page_id, &tree).await?;
+        let cache = svc.save_tree(page_id, &tree).await?;
         if let (Some(s), Some(id)) = (&wp.session, jid) {
             s.complete(&id);
         }
         Ok(ToolResult::text(format!(
-            "Updated settings for element {eid} on page {page_id}"
+            "Updated settings for element {eid} on page {page_id}{}",
+            cache.summary_line()
         )))
     }
 }

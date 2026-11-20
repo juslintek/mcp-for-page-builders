@@ -60,12 +60,14 @@ impl Tool for PublishDocument {
     async fn run(&self, args: Value, wp: &WpClient) -> Result<ToolResult> {
         let post_id =
             u64_arg(&args, "post_id").ok_or_else(|| anyhow::anyhow!("post_id required"))?;
-        let resp = wp
+        let mut resp = wp
             .post(
                 "mcp-for-page-builders/v1/v4/publish-document",
                 &json!({ "post_id": post_id }),
             )
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Post(post_id), &mut resp)
+            .await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }
@@ -168,12 +170,13 @@ impl Tool for ManageSiteParts {
                 other => bail!("operations[{idx}] unknown action '{other}'"),
             }
         }
-        let resp = wp
+        let mut resp = wp
             .post(
                 "mcp-for-page-builders/v1/v4/site-parts",
                 &json!({ "operations": ops }),
             )
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut resp).await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }

@@ -238,15 +238,33 @@ impl Tool for ApplyElementorPlan {
                 &json!({"applied":true,"page_id":plan.page_id,"operation_id":plan.operation_id,"current_revision":document_revision,"resources":resources,"idempotent_replay":true,"verification":{"status":"not_requested"}}),
             )?));
         }
+        let cache_scope = if plan.resource_patches.iter().any(|p| {
+            matches!(
+                p.kind,
+                crate::types::elementor_plan::ResourceKind::Kit
+                    | crate::types::elementor_plan::ResourceKind::Class
+                    | crate::types::elementor_plan::ResourceKind::Variable
+            )
+        }) {
+            if plan.page_id > 0 {
+                crate::cache::CacheScope::All
+            } else {
+                crate::cache::CacheScope::Global
+            }
+        } else if plan.page_id > 0 {
+            crate::cache::CacheScope::Post(plan.page_id)
+        } else {
+            crate::cache::CacheScope::All
+        };
         if new_resource {
             let created = resources
                 .as_ref()
                 .and_then(|value| value["resources"].as_array())
                 .cloned()
                 .unwrap_or_default();
-            return Ok(ToolResult::text(serde_json::to_string(
-                &json!({"status":"created","resources":created,"operation_id":plan.operation_id,"idempotent_replay":resources.as_ref().is_some_and(|value| value["idempotent_replay"] == true)}),
-            )?));
+            let mut resp = json!({"status":"created","resources":created,"operation_id":plan.operation_id,"idempotent_replay":resources.as_ref().is_some_and(|value| value["idempotent_replay"] == true)});
+            crate::cache::clear_and_attach(wp, cache_scope, &mut resp).await;
+            return Ok(ToolResult::text(serde_json::to_string(&resp)?));
         }
         if !plan.checks.is_empty() {
             let results = match verify_checks(wp, plan.page_id, &plan.checks).await {
@@ -262,13 +280,13 @@ impl Tool for ApplyElementorPlan {
                     )?));
                 }
             };
-            return Ok(ToolResult::text(serde_json::to_string(
-                &json!({"status":"applied_and_verified","applied":true,"page_id":plan.page_id,"operation_id":plan.operation_id,"current_revision":document_revision,"resources":resources,"verification":results}),
-            )?));
+            let mut resp = json!({"status":"applied_and_verified","applied":true,"page_id":plan.page_id,"operation_id":plan.operation_id,"current_revision":document_revision,"resources":resources,"verification":results});
+            crate::cache::clear_and_attach(wp, cache_scope, &mut resp).await;
+            return Ok(ToolResult::text(serde_json::to_string(&resp)?));
         }
-        Ok(ToolResult::text(serde_json::to_string(
-            &json!({"applied":true,"page_id":plan.page_id,"operation_id":plan.operation_id,"current_revision":document_revision,"resources":resources,"verification":{"status":"not_requested"}}),
-        )?))
+        let mut resp = json!({"applied":true,"page_id":plan.page_id,"operation_id":plan.operation_id,"current_revision":document_revision,"resources":resources,"verification":{"status":"not_requested"}});
+        crate::cache::clear_and_attach(wp, cache_scope, &mut resp).await;
+        Ok(ToolResult::text(serde_json::to_string(&resp)?))
     }
 }
 
@@ -647,8 +665,14 @@ impl Tool for RestoreElementorSnapshot {
                 && receipt["readback_verified"] == true
                 && receipt["restored_fingerprint"].as_str() == Some(restored_fingerprint)
                 && receipt["current_state_fingerprint"].as_str() == Some(restored_fingerprint);
-            let output = json!({"restored":verified,"partial_failure":!verified,"snapshot_kind":"native_editor","page_id":page_id,"operation_id":operation_id,"restored_fingerprint":restored_fingerprint,"readback_verified":verified,"receipt":receipt});
+            let mut output = json!({"restored":verified,"partial_failure":!verified,"snapshot_kind":"native_editor","page_id":page_id,"operation_id":operation_id,"restored_fingerprint":restored_fingerprint,"readback_verified":verified,"receipt":receipt});
             return Ok(if verified {
+                crate::cache::clear_and_attach(
+                    wp,
+                    crate::cache::CacheScope::Post(page_id),
+                    &mut output,
+                )
+                .await;
                 ToolResult::text(serde_json::to_string(&output)?)
             } else {
                 ToolResult::error(serde_json::to_string(&output)?)
@@ -667,9 +691,10 @@ impl Tool for RestoreElementorSnapshot {
             )
             .await?;
         if resources["restored"] == true && resources["document_snapshot"] == false {
-            return Ok(ToolResult::text(serde_json::to_string(
-                &json!({"restored":true,"resources":resources}),
-            )?));
+            let mut output = json!({"restored":true,"resources":resources});
+            crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut output)
+                .await;
+            return Ok(ToolResult::text(serde_json::to_string(&output)?));
         }
         let result = ElementorService::new(wp)
             .restore_tree(page_id, operation_id, expected_revision)
@@ -678,7 +703,14 @@ impl Tool for RestoreElementorSnapshot {
             Ok(document)
                 if document["cache_regenerated"] == true && resources["restored"] != false =>
             {
-                json!({"restored":true,"document":document,"resources":resources})
+                let mut out = json!({"restored":true,"document":document,"resources":resources});
+                let scope = if page_id > 0 {
+                    crate::cache::CacheScope::Post(page_id)
+                } else {
+                    crate::cache::CacheScope::All
+                };
+                crate::cache::clear_and_attach(wp, scope, &mut out).await;
+                out
             }
             Ok(document) => {
                 json!({"partial_failure":true,"document":document,"resources":resources})

@@ -57,9 +57,10 @@ impl Tool for MoveElement {
             )));
         }
 
-        svc.save_tree(page_id, &tree).await?;
+        let cache = svc.save_tree(page_id, &tree).await?;
         Ok(ToolResult::text(format!(
-            "Moved element {eid} on page {page_id}"
+            "Moved element {eid} on page {page_id}{}",
+            cache.summary_line()
         )))
     }
 }

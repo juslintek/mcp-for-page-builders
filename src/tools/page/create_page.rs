@@ -90,8 +90,10 @@ impl Tool for CreatePage {
             .get(&format!("wp/v2/pages/{id}"))
             .await
             .with_context(|| restore.clone())?;
-        Ok(ToolResult::text(serde_json::to_string(
-            &json!({"status":"created","id":id,"link":post["link"],"post_status":post["status"],"resource_revision":revision,"operation_id":receipt["operation_id"],"idempotent_replay":receipt["idempotent_replay"]}),
-        )?))
+        let mut resp = json!({"status":"created","id":id,"link":post["link"],"post_status":post["status"],"resource_revision":revision,"operation_id":receipt["operation_id"],"idempotent_replay":receipt["idempotent_replay"]});
+        if !receipt["cache_cleared"].is_null() {
+            resp["cache_cleared"] = receipt["cache_cleared"].clone();
+        }
+        Ok(ToolResult::text(serde_json::to_string(&resp)?))
     }
 }

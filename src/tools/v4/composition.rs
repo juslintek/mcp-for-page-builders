@@ -432,7 +432,7 @@ impl Tool for BuildComposition {
             }))?));
         }
 
-        let resp = wp
+        let mut resp = wp
             .post(
                 "mcp-for-page-builders/v1/v4/build-composition",
                 &json!({
@@ -445,6 +445,8 @@ impl Tool for BuildComposition {
                 }),
             )
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Post(post_id), &mut resp)
+            .await;
 
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }

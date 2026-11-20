@@ -44,9 +44,12 @@ impl Tool for UploadPage {
             &format!("mcp-{}", crate::elementor::generate_id()),
         )
         .await?;
+        let cache =
+            crate::cache::clear_related_caches(wp, crate::cache::CacheScope::Post(id)).await;
 
         Ok(ToolResult::text(format!(
-            "Updated page {id} from {path} and cleared CSS cache."
+            "Updated page {id} from {path}{}",
+            cache.summary_line()
         )))
     }
 }

@@ -595,19 +595,23 @@ impl Tool for ElementorEditor {
                         .to_string(),
                     ));
                 }
-                Ok(ToolResult::text(
-                    json!({
-                        "status": "saved",
-                        "post_id": page_id,
-                        "operation_id": operation_id,
-                        "document_revision": response["document_revision"],
-                        "readback_verified": true,
-                        "snapshot_kind": response["snapshot_kind"],
-                        "expected_state_fingerprint": response["expected_state_fingerprint"],
-                        "restore_operation_id": response["restore_operation_id"]
-                    })
-                    .to_string(),
-                ))
+                let mut resp = json!({
+                    "status": "saved",
+                    "post_id": page_id,
+                    "operation_id": operation_id,
+                    "document_revision": response["document_revision"],
+                    "readback_verified": true,
+                    "snapshot_kind": response["snapshot_kind"],
+                    "expected_state_fingerprint": response["expected_state_fingerprint"],
+                    "restore_operation_id": response["restore_operation_id"]
+                });
+                crate::cache::clear_and_attach(
+                    wp,
+                    crate::cache::CacheScope::Post(page_id),
+                    &mut resp,
+                )
+                .await;
+                Ok(ToolResult::text(resp.to_string()))
             }
             "get_preview_box" => {
                 let selector = args["selector"]

@@ -44,9 +44,10 @@ impl Tool for SetGlobalColor {
             &id,
             json!({"title":title,"color":color}),
         )?;
-        super::resource::save_kit_settings(wp, settings, &revision).await?;
+        let cache = super::resource::save_kit_settings(wp, settings, &revision).await?;
         Ok(ToolResult::text(format!(
-            "Set global color '{id}': {title} = {color}"
+            "Set global color '{id}': {title} = {color}{}",
+            cache.summary_line()
         )))
     }
 }

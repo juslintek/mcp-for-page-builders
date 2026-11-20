@@ -54,9 +54,10 @@ impl Tool for DuplicateElement {
             )));
         }
 
-        svc.save_tree(page_id, &tree).await?;
+        let cache = svc.save_tree(page_id, &tree).await?;
         Ok(ToolResult::text(format!(
-            "Duplicated {eid} → {clone_id} on page {page_id}"
+            "Duplicated {eid} → {clone_id} on page {page_id}{}",
+            cache.summary_line()
         )))
     }
 }

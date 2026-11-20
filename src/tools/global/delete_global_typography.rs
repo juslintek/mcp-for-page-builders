@@ -31,9 +31,10 @@ impl Tool for DeleteGlobalTypography {
         let collection =
             super::resource::collection(&settings, "system_typography", "custom_typography", &id);
         super::resource::remove(&mut settings, &collection, &id)?;
-        super::resource::save_kit_settings(wp, settings, &revision).await?;
+        let cache = super::resource::save_kit_settings(wp, settings, &revision).await?;
         Ok(ToolResult::text(format!(
-            "Deleted global typography '{id}'"
+            "Deleted global typography '{id}'{}",
+            cache.summary_line()
         )))
     }
 }

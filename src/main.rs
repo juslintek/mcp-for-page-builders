@@ -8,6 +8,7 @@
 )]
 
 mod args;
+mod cache;
 pub mod cdp;
 mod elementor;
 mod laya;

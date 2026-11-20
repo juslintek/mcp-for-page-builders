@@ -80,12 +80,13 @@ impl Tool for ManageGlobalVariable {
             }
         }
 
-        let resp = wp
+        let mut resp = wp
             .post(
                 "mcp-for-page-builders/v1/v4/variables",
                 &json!({ "operations": ops }),
             )
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut resp).await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }
@@ -126,12 +127,13 @@ impl Tool for ManageClasses {
             .and_then(Value::as_array)
             .ok_or_else(|| anyhow::anyhow!("operations array required"))?;
         let prepared = prepare_class_operations(ops)?;
-        let resp = wp
+        let mut resp = wp
             .post(
                 "mcp-for-page-builders/v1/v4/classes",
                 &json!({ "operations": prepared }),
             )
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut resp).await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }
@@ -246,9 +248,10 @@ impl Tool for ReorderClasses {
                 }
             }
         }
-        let resp = wp
+        let mut resp = wp
             .post("mcp-for-page-builders/v1/v4/classes/reorder", &args)
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut resp).await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }
@@ -348,12 +351,13 @@ impl Tool for ManageDefaultStyles {
             }
             prepared.push(out);
         }
-        let resp = wp
+        let mut resp = wp
             .post(
                 "mcp-for-page-builders/v1/v4/default-styles",
                 &json!({ "operations": prepared }),
             )
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut resp).await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }

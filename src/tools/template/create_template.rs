@@ -42,9 +42,11 @@ impl Tool for CreateTemplate {
         let id = receipt["id"]
             .as_str()
             .context("validated template ID missing")?;
-        Ok(ToolResult::text(serde_json::to_string(
-            &json!({"status":"created","id":id,"template_type":template_type,"post_status":"draft","resource_revision":receipt["resource_revision"],"operation_id":receipt["operation_id"],"idempotent_replay":receipt["idempotent_replay"]}),
-        )?))
+        let mut resp = json!({"status":"created","id":id,"template_type":template_type,"post_status":"draft","resource_revision":receipt["resource_revision"],"operation_id":receipt["operation_id"],"idempotent_replay":receipt["idempotent_replay"]});
+        if !receipt["cache_cleared"].is_null() {
+            resp["cache_cleared"] = receipt["cache_cleared"].clone();
+        }
+        Ok(ToolResult::text(serde_json::to_string(&resp)?))
     }
 }
 

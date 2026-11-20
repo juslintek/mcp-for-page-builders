@@ -170,9 +170,10 @@ impl Tool for ManageComponent {
             payload["overridable_props"] = props.clone();
         }
 
-        let resp = wp
+        let mut resp = wp
             .post("mcp-for-page-builders/v1/v4/components/manage", &payload)
             .await?;
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Global, &mut resp).await;
         Ok(ToolResult::text(serde_json::to_string_pretty(&resp)?))
     }
 }

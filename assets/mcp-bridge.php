@@ -2968,7 +2968,225 @@ add_action('rest_api_init', function() {
             return ['results' => $results];
         }, 'permission_callback' => $admin],
     ]);
+
+    register_rest_route($ns, '/cache/status', [
+        'methods' => 'GET',
+        'callback' => function() {
+            return ['detected' => mcp_bridge_detect_caches()];
+        },
+        'permission_callback' => $admin,
+    ]);
+
+    register_rest_route($ns, '/cache/clear', [
+        'methods' => 'POST',
+        'callback' => function($req) {
+            $scope = sanitize_key((string) ($req->get_param('scope') ?? 'all'));
+            if (!in_array($scope, ['post', 'global', 'all'], true)) {
+                $scope = 'all';
+            }
+            $post_id = (int) ($req->get_param('post_id') ?? 0);
+            $url = esc_url_raw((string) ($req->get_param('url') ?? ''));
+            return mcp_bridge_clear_caches($scope, $post_id, $url);
+        },
+        'permission_callback' => $admin,
+    ]);
 });
+
+function mcp_bridge_detect_caches() {
+    $detected = [];
+    if (class_exists('Elementor\\Plugin')) {
+        $print_method = get_option('elementor_css_print_method', 'external');
+        $detected[] = [
+            'id' => 'elementor-css',
+            'layer' => 'Elementor CSS Cache',
+            'kind' => 'css_cache',
+            'source' => 'wordpress_bridge',
+            'detail' => 'print_method=' . (is_string($print_method) && $print_method !== '' ? $print_method : 'external'),
+        ];
+    }
+    if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
+        $backend = defined('WP_REDIS_VERSION') ? 'Redis ' . WP_REDIS_VERSION : (class_exists('Redis', false) ? 'Redis' : (class_exists('Memcached', false) ? 'Memcached' : 'External Object Cache'));
+        $detected[] = [
+            'id' => 'wp-object-cache',
+            'layer' => 'WP Object Cache',
+            'kind' => 'object_cache',
+            'source' => 'wordpress_bridge',
+            'detail' => $backend,
+        ];
+    }
+    if ((defined('WP_CACHE') && WP_CACHE) || (defined('WP_CONTENT_DIR') && is_file(WP_CONTENT_DIR . '/advanced-cache.php'))) {
+        $detected[] = [
+            'id' => 'advanced-cache',
+            'layer' => 'WordPress advanced-cache.php',
+            'kind' => 'drop_in',
+            'source' => 'wordpress_bridge',
+            'detail' => defined('WP_CACHE') && WP_CACHE ? 'WP_CACHE=true' : 'drop-in present',
+        ];
+    }
+    $plugins = [
+        ['id' => 'litespeed-cache', 'layer' => 'LiteSpeed Cache', 'kind' => 'page_cache', 'active' => defined('LSCWP_V') || class_exists('LiteSpeed\\Purge'), 'detail' => defined('LSCWP_V') ? LSCWP_V : null],
+        ['id' => 'wp-rocket', 'layer' => 'WP Rocket', 'kind' => 'page_cache', 'active' => defined('WP_ROCKET_VERSION') || function_exists('rocket_clean_domain'), 'detail' => defined('WP_ROCKET_VERSION') ? WP_ROCKET_VERSION : null],
+        ['id' => 'w3-total-cache', 'layer' => 'W3 Total Cache', 'kind' => 'page_cache', 'active' => defined('W3TC') || function_exists('w3tc_flush_all'), 'detail' => defined('W3TC_VERSION') ? W3TC_VERSION : null],
+        ['id' => 'wp-super-cache', 'layer' => 'WP Super Cache', 'kind' => 'page_cache', 'active' => defined('WPSC_VERSION') || function_exists('wp_cache_clear_cache'), 'detail' => defined('WPSC_VERSION') ? WPSC_VERSION : null],
+        ['id' => 'wp-fastest-cache', 'layer' => 'WP Fastest Cache', 'kind' => 'page_cache', 'active' => class_exists('WpFastestCache') || function_exists('wpfc_clear_all_cache'), 'detail' => null],
+        ['id' => 'autoptimize', 'layer' => 'Autoptimize', 'kind' => 'asset_optimizer', 'active' => defined('AUTOPTIMIZE_PLUGIN_VERSION') || class_exists('autoptimizeCache'), 'detail' => defined('AUTOPTIMIZE_PLUGIN_VERSION') ? AUTOPTIMIZE_PLUGIN_VERSION : null],
+        ['id' => 'sg-optimizer', 'layer' => 'SG Optimizer', 'kind' => 'page_cache', 'active' => class_exists('SiteGround_Optimizer\\Supercacher\\Supercacher') || function_exists('sg_cachepress_purge_cache'), 'detail' => null],
+        ['id' => 'breeze', 'layer' => 'Breeze', 'kind' => 'page_cache', 'active' => defined('BREEZE_VERSION') || class_exists('Breeze_PurgeCache'), 'detail' => defined('BREEZE_VERSION') ? BREEZE_VERSION : null],
+        ['id' => 'hummingbird', 'layer' => 'Hummingbird', 'kind' => 'page_cache', 'active' => defined('WPHB_VERSION') || has_action('wphb_clear_page_cache'), 'detail' => defined('WPHB_VERSION') ? WPHB_VERSION : null],
+        ['id' => 'nitropack', 'layer' => 'NitroPack', 'kind' => 'page_cache', 'active' => defined('NITROPACK_VERSION') || function_exists('nitropack_sdk_purge'), 'detail' => defined('NITROPACK_VERSION') ? NITROPACK_VERSION : null],
+        ['id' => 'nginx-helper', 'layer' => 'Nginx Helper', 'kind' => 'page_cache', 'active' => class_exists('Nginx_Helper') || has_action('rt_nginx_helper_purge_all') || has_action('rt_nginx_helper_purge_url'), 'detail' => null],
+        ['id' => 'flying-press', 'layer' => 'FlyingPress', 'kind' => 'page_cache', 'active' => defined('FLYING_PRESS_VERSION') || has_action('flying_press_purge_everything'), 'detail' => defined('FLYING_PRESS_VERSION') ? FLYING_PRESS_VERSION : null],
+        ['id' => 'cache-enabler', 'layer' => 'Cache Enabler', 'kind' => 'page_cache', 'active' => defined('CACHE_ENABLER_VERSION') || has_action('cache_enabler_clear_complete_cache'), 'detail' => defined('CACHE_ENABLER_VERSION') ? CACHE_ENABLER_VERSION : null],
+    ];
+    foreach ($plugins as $plugin) {
+        if (!$plugin['active']) continue;
+        $entry = [
+            'id' => $plugin['id'],
+            'layer' => $plugin['layer'],
+            'kind' => $plugin['kind'],
+            'source' => 'wordpress_bridge',
+        ];
+        if ($plugin['detail'] !== null && $plugin['detail'] !== '') {
+            $entry['detail'] = (string) $plugin['detail'];
+        }
+        $detected[] = $entry;
+    }
+    return $detected;
+}
+
+function mcp_bridge_clear_caches($scope = 'all', $post_id = 0, $url = '') {
+    $detected = mcp_bridge_detect_caches();
+    $cleared = [];
+    $warnings = [];
+    if ($post_id > 0 && $url === '' && function_exists('get_permalink')) {
+        $permalink = get_permalink($post_id);
+        if (is_string($permalink) && $permalink !== '') {
+            $url = $permalink;
+        }
+    }
+    $is_post_scope = $scope === 'post' && $post_id > 0;
+
+    if (class_exists('Elementor\\Plugin')) {
+        try {
+            if ($is_post_scope) {
+                clean_post_cache($post_id);
+                wp_cache_delete($post_id, 'post_meta');
+                if (class_exists('Elementor\\Core\\Files\\CSS\\Post')) {
+                    $post_css = new Elementor\Core\Files\CSS\Post($post_id);
+                    if (is_callable([$post_css, 'delete'])) {
+                        $post_css->delete();
+                    }
+                    $post_css->update();
+                    $cleared[] = 'Elementor Post CSS (#' . $post_id . ')';
+                }
+                if (function_exists('mcp_bridge_invalidate_atomic_css')) {
+                    $atomic = mcp_bridge_invalidate_atomic_css($post_id);
+                    if (!is_wp_error($atomic)) {
+                        $cleared[] = 'Elementor Atomic CSS (#' . $post_id . ')';
+                    }
+                }
+                if (function_exists('mcp_bridge_invalidate_document_html_cache')) {
+                    $html = mcp_bridge_invalidate_document_html_cache($post_id);
+                    if (!is_wp_error($html)) {
+                        $cleared[] = 'Elementor Document HTML Cache (#' . $post_id . ')';
+                    }
+                }
+            } else {
+                $files_manager = Elementor\Plugin::instance()->files_manager ?? null;
+                if (is_object($files_manager) && method_exists($files_manager, 'clear_cache')) {
+                    $files_manager->clear_cache();
+                }
+                do_action('elementor/core/files/clear_cache');
+                $cleared[] = 'Elementor Global CSS';
+            }
+        } catch (Throwable $e) {
+            $warnings[] = 'Elementor CSS clear failed: ' . $e->getMessage();
+        }
+    }
+
+    if ($is_post_scope) {
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+        $cleared[] = 'WP Post Object Cache (#' . $post_id . ')';
+    } elseif (function_exists('wp_cache_flush')) {
+        if (wp_cache_flush()) {
+            $cleared[] = 'WP Object Cache';
+        }
+    }
+
+    $detected_ids = array_column($detected, 'id');
+    $purge = function($id, $label, $fn) use (&$cleared, &$warnings, $detected_ids) {
+        if (!in_array($id, $detected_ids, true)) return;
+        try {
+            $fn();
+            $cleared[] = $label;
+        } catch (Throwable $e) {
+            $warnings[] = $label . ' purge failed: ' . $e->getMessage();
+        }
+    };
+
+    $purge('litespeed-cache', $is_post_scope ? 'LiteSpeed Cache (post #' . $post_id . ')' : 'LiteSpeed Cache', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope) do_action('litespeed_purge_post', $post_id);
+        else do_action('litespeed_purge_all');
+    });
+    $purge('wp-rocket', $is_post_scope ? 'WP Rocket (post #' . $post_id . ')' : 'WP Rocket', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope && function_exists('rocket_clean_post')) rocket_clean_post($post_id);
+        elseif (function_exists('rocket_clean_domain')) rocket_clean_domain();
+    });
+    $purge('w3-total-cache', $is_post_scope ? 'W3 Total Cache (post #' . $post_id . ')' : 'W3 Total Cache', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope && function_exists('w3tc_flush_post')) w3tc_flush_post($post_id);
+        elseif (function_exists('w3tc_flush_all')) w3tc_flush_all();
+    });
+    $purge('wp-super-cache', $is_post_scope ? 'WP Super Cache (post #' . $post_id . ')' : 'WP Super Cache', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope && function_exists('wp_cache_post_change')) wp_cache_post_change($post_id);
+        elseif (function_exists('wp_cache_clear_cache')) wp_cache_clear_cache();
+    });
+    $purge('wp-fastest-cache', $is_post_scope ? 'WP Fastest Cache (post #' . $post_id . ')' : 'WP Fastest Cache', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope && function_exists('wpfc_clear_post_cache_by_id')) wpfc_clear_post_cache_by_id($post_id);
+        elseif (function_exists('wpfc_clear_all_cache')) wpfc_clear_all_cache(true);
+    });
+    $purge('autoptimize', 'Autoptimize', function() {
+        if (class_exists('autoptimizeCache') && method_exists('autoptimizeCache', 'clearall')) autoptimizeCache::clearall();
+    });
+    $purge('sg-optimizer', $is_post_scope && $url !== '' ? 'SG Optimizer (URL)' : 'SG Optimizer', function() use ($is_post_scope, $url) {
+        if ($is_post_scope && $url !== '' && function_exists('sg_cachepress_purge_cache')) sg_cachepress_purge_cache($url);
+        elseif (class_exists('SiteGround_Optimizer\\Supercacher\\Supercacher') && method_exists('SiteGround_Optimizer\\Supercacher\\Supercacher', 'purge_cache')) SiteGround_Optimizer\Supercacher\Supercacher::purge_cache();
+        elseif (function_exists('sg_cachepress_purge_cache')) sg_cachepress_purge_cache();
+    });
+    $purge('breeze', 'Breeze', function() {
+        do_action('breeze_clear_all_cache');
+    });
+    $purge('hummingbird', $is_post_scope ? 'Hummingbird (post #' . $post_id . ')' : 'Hummingbird', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope) do_action('wphb_clear_page_cache', $post_id);
+        else do_action('wphb_clear_page_cache');
+    });
+    $purge('nitropack', $is_post_scope && $url !== '' ? 'NitroPack (URL)' : 'NitroPack', function() use ($is_post_scope, $url) {
+        if (!function_exists('nitropack_sdk_purge')) return;
+        if ($is_post_scope && $url !== '') nitropack_sdk_purge($url);
+        else nitropack_sdk_purge();
+    });
+    $purge('nginx-helper', $is_post_scope && $url !== '' ? 'Nginx Helper (URL)' : 'Nginx Helper', function() use ($is_post_scope, $url) {
+        if ($is_post_scope && $url !== '') do_action('rt_nginx_helper_purge_url', $url);
+        else do_action('rt_nginx_helper_purge_all');
+    });
+    $purge('flying-press', $is_post_scope && $url !== '' ? 'FlyingPress (URL)' : 'FlyingPress', function() use ($is_post_scope, $url) {
+        if ($is_post_scope && $url !== '') do_action('flying_press_purge_pages', [$url]);
+        else do_action('flying_press_purge_everything');
+    });
+    $purge('cache-enabler', $is_post_scope ? 'Cache Enabler (post #' . $post_id . ')' : 'Cache Enabler', function() use ($is_post_scope, $post_id) {
+        if ($is_post_scope) do_action('cache_enabler_clear_page_cache_by_post', $post_id);
+        else do_action('cache_enabler_clear_complete_cache');
+    });
+
+    return [
+        'scope' => $scope,
+        'post_id' => $post_id > 0 ? $post_id : null,
+        'url' => $url !== '' ? $url : null,
+        'detected' => $detected,
+        'cleared' => $cleared,
+        'warnings' => $warnings,
+    ];
+}
 
 add_filter('user_has_cap', function($allcaps, $caps, $args) {
     if (!empty($_GET['mcp_preview'])) {

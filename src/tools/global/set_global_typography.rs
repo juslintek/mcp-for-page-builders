@@ -55,9 +55,10 @@ impl Tool for SetGlobalTypography {
         let mut preset = value.as_object().cloned().unwrap_or_default();
         preset.insert("title".into(), Value::String(title.clone()));
         super::resource::upsert(&mut settings, &collection, &id, Value::Object(preset))?;
-        super::resource::save_kit_settings(wp, settings, &revision).await?;
+        let cache = super::resource::save_kit_settings(wp, settings, &revision).await?;
         Ok(ToolResult::text(format!(
-            "Set global typography '{id}': {title}"
+            "Set global typography '{id}': {title}{}",
+            cache.summary_line()
         )))
     }
 }

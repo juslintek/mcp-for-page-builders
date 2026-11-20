@@ -22,7 +22,11 @@ impl<'a> ElementorService<'a> {
         })
     }
 
-    pub async fn save_tree(&self, page_id: u64, tree: &ElementTree) -> anyhow::Result<()> {
+    pub async fn save_tree(
+        &self,
+        page_id: u64,
+        tree: &ElementTree,
+    ) -> anyhow::Result<crate::cache::CacheReport> {
         let revision = tree.revision.as_deref().ok_or_else(|| {
             anyhow::anyhow!("Page revision is unavailable; read the page tree again")
         })?;
@@ -33,7 +37,11 @@ impl<'a> ElementorService<'a> {
             revision,
             &format!("mcp-{}", super::ops::generate_id()),
         )
-        .await
+        .await?;
+        Ok(
+            crate::cache::clear_related_caches(self.wp, crate::cache::CacheScope::Post(page_id))
+                .await,
+        )
     }
 
     pub fn require_revision(tree: &ElementTree, expected: &str) -> anyhow::Result<()> {

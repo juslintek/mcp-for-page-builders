@@ -43,9 +43,10 @@ impl Tool for RemoveElement {
         ElementorService::require_revision(&tree, &expected_revision)?;
         match tree.remove(&eid) {
             Some(_) => {
-                svc.save_tree(page_id, &tree).await?;
+                let cache = svc.save_tree(page_id, &tree).await?;
                 Ok(ToolResult::text(format!(
-                    "Removed element {eid} from page {page_id}"
+                    "Removed element {eid} from page {page_id}{}",
+                    cache.summary_line()
                 )))
             }
             None => Ok(ToolResult::error(format!(

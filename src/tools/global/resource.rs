@@ -18,7 +18,7 @@ pub async fn save_kit_settings(
     wp: &WpClient,
     mut settings: Value,
     expected_revision: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<crate::cache::CacheReport> {
     if settings["revision"].as_str() != Some(expected_revision) {
         anyhow::bail!("Stale kit revision; read global colors or typography again");
     }
@@ -44,7 +44,7 @@ pub async fn save_kit_settings(
             serde_json::to_string(&response)?
         );
     }
-    Ok(())
+    Ok(crate::cache::clear_related_caches(wp, crate::cache::CacheScope::Global).await)
 }
 
 pub fn upsert(

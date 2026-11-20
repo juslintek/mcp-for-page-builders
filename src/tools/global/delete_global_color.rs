@@ -31,7 +31,10 @@ impl Tool for DeleteGlobalColor {
         let collection =
             super::resource::collection(&settings, "system_colors", "custom_colors", &id);
         super::resource::remove(&mut settings, &collection, &id)?;
-        super::resource::save_kit_settings(wp, settings, &revision).await?;
-        Ok(ToolResult::text(format!("Deleted global color '{id}'")))
+        let cache = super::resource::save_kit_settings(wp, settings, &revision).await?;
+        Ok(ToolResult::text(format!(
+            "Deleted global color '{id}'{}",
+            cache.summary_line()
+        )))
     }
 }

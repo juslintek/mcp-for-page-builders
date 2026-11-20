@@ -81,13 +81,14 @@ impl Tool for PatchElements {
             .session
             .as_ref()
             .map(|s| s.record("patch_elements", wp.base_url(), &format!("page:{page_id}")));
-        svc.save_tree(page_id, &tree).await?;
+        let cache = svc.save_tree(page_id, &tree).await?;
         if let (Some(s), Some(id)) = (&wp.session, jid) {
             s.complete(&id);
         }
 
         Ok(ToolResult::text(format!(
-            "Patched {total} elements on page {page_id}"
+            "Patched {total} elements on page {page_id}{}",
+            cache.summary_line()
         )))
     }
 }

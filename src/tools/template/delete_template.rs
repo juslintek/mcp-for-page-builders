@@ -36,8 +36,8 @@ impl Tool for DeleteTemplate {
         let operation_id = str_arg(&args, "operation_id")
             .unwrap_or_else(|| format!("delete-{}", crate::elementor::generate_id()));
         let receipt = wp.request("POST", "mcp-for-page-builders/v1/resources/apply", Some(&json!({"operation_id":operation_id,"resource_patches":[{"kind":"trash","id":id.to_string(),"expected_revision":expected,"after":{}}]})), None).await?;
-        Ok(ToolResult::text(serde_json::to_string(
-            &json!({"trashed":true,"id":id,"operation_id":operation_id,"restore_operation_id":operation_id,"receipt":receipt}),
-        )?))
+        let mut resp = json!({"trashed":true,"id":id,"operation_id":operation_id,"restore_operation_id":operation_id,"receipt":receipt});
+        crate::cache::clear_and_attach(wp, crate::cache::CacheScope::Post(id), &mut resp).await;
+        Ok(ToolResult::text(serde_json::to_string(&resp)?))
     }
 }
